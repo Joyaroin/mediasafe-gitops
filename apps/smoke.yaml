@@ -1,0 +1,27 @@
+# Temporary: proves the loop before anything real depends on it. A commit to smoke/ must reach
+# the cluster, a hand edit must be reverted, and deleting this file must remove the namespace.
+# Delete this file and smoke/ once that has been seen.
+#
+# The finalizer is what makes deleting the Application delete what it created.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: smoke
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
+    targetRevision: main
+    path: smoke
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: smoke
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

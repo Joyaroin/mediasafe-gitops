@@ -1,0 +1,24 @@
+# The one Application applied by hand (by bootstrap/install). It syncs apps/, and every other
+# Application lives there — including Argo CD's own. From here on, a commit is the only way
+# anything in the cluster changes.
+#
+# No resources finalizer: deleting this Application must never cascade into deleting
+# everything it created.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
+    targetRevision: main
+    path: apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

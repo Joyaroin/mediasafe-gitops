@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Installs Argo CD on a fresh cluster and hands it this repository. Run once per cluster —
+# after the first apply of infra/terraform, and again after any rebuild of the VM.
+#
+#   export KUBECONFIG=~/.kube/mediasafe.yaml
+#   export BW_SESSION="$(bw unlock --raw)"
+#   bootstrap/install
+#
+# It keeps no state, so it behaves the same on every new cluster. It renders the exact chart
+# version and values apps/argocd.yaml names, so when Argo CD starts managing itself it finds
+# nothing to change. Safe to re-run: every step is an apply.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+REPO_URL=git@github.com:Joyaroin/mediasafe-gitops.git
+DEPLOY_KEY_ITEM=mediasafe/argocd-deploy-key
+
+: "${BW_SESSION:?Unlock Bitwarden first: export BW_SESSION=\"\$(bw unlock --raw)\"}"
+bw unlock --check --session "$BW_SESSION" >/dev/null 2>&1 \
+  || { echo "BW_SESSION is stale. Unlock again: export BW_SESSION=\"\$(bw unlock --raw)\"" >&2; exit 1; }
+
+context="$(kubectl config current-context)"
+kubectl get node mediasafe >/dev/null \
+  || { echo "kubectl ($context) does not reach the MediaSafe node. export KUBECONFIG=~/.kube/mediasafe.yaml" >&2; exit 1; }
+
+# The chart version is read from apps/argocd.yaml rather than repeated here, so the two can't
+# drift: a mismatch would make Argo CD's first self-sync an unplanned upgrade or downgrade.
+chart_version="$(awk '/chart: argo-cd/ { found = 1 } found && /targetRevision:/ { print $2; exit }' apps/argocd.yaml)"
+[[ -n "$chart_version" ]] || { echo "Could not read the argo-cd chart version from apps/argocd.yaml" >&2; exit 1; }
+echo "Installing argo-cd chart $chart_version on $context"
+
+kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+
+# The repository credential. It is the one thing Argo CD needs that cannot come from git,
+# since it is how Argo CD reads git. Labelled so Argo CD picks it up as a repository.
+bw get notes "$DEPLOY_KEY_ITEM" --session "$BW_SESSION" \
+  | kubectl create secret generic repo-mediasafe-gitops --namespace argocd \
+      --from-literal=type=git --from-literal=url="$REPO_URL" \
+      --from-file=sshPrivateKey=/dev/stdin --dry-run=client -o yaml \
+  | kubectl label --local -f - argocd.argoproj.io/secret-type=repository -o yaml \
+  | kubectl apply -f -
+
+# Server-side: Argo CD's CRDs exceed the annotation size client-side apply needs. No Helm
+# release is recorded — Argo CD renders the chart itself from here on, so a release secret
+# would only be a second, stale account of what is installed.
+helm template argocd argo-cd \
+    --repo https://argoproj.github.io/argo-helm --version "$chart_version" \
+    --namespace argocd --values platform/argocd/values.yaml \
+  | kubectl apply --server-side --force-conflicts -f -
+
+kubectl --namespace argocd rollout status deployment/argocd-server --timeout=5m
+kubectl --namespace argocd rollout status deployment/argocd-repo-server --timeout=5m
+kubectl --namespace argocd rollout status statefulset/argocd-application-controller --timeout=5m
+
+kubectl apply -f bootstrap/root.yaml
+
+cat <<EOF
+
+Argo CD is running and syncing $REPO_URL (apps/).
+  Watch it:      kubectl -n argocd get applications -w
+  UI:            kubectl -n argocd port-forward svc/argocd-server 8080:80   →  http://localhost:8080
+  Admin password (until Google sign-in, stage 5):
+                 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
+EOF

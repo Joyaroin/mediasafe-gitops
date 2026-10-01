@@ -1,0 +1,27 @@
+# Argo CD on a 4 GB node shared with Vault and two app environments: only the parts used.
+# Chart reference: https://github.com/argoproj/argo-helm/tree/argo-cd-10.9.6/charts/argo-cd
+
+global:
+  domain: argocd.mediasafe.space
+
+# Sign-in will be Google OIDC, which Argo CD speaks natively (stage 5). No Dex needed.
+dex:
+  enabled: false
+
+# Nothing here sends notifications.
+notifications:
+  enabled: false
+
+# Every app is a plain Application in apps/, so the ApplicationSet controller has no work.
+# The chart has no switch for it; zero replicas is the way off.
+applicationSet:
+  replicas: 0
+
+configs:
+  params:
+    # TLS will terminate at Traefik (stage 4), which talks plain HTTP to argocd-server.
+    # Until then the UI is reached only by port-forward.
+    server.insecure: true
+  cm:
+    # The local admin account, until Google sign-in replaces it in stage 5.
+    admin.enabled: true
