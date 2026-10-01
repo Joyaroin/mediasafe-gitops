@@ -1,0 +1,6 @@
+# Tracked here, not only created by CreateNamespace=true: Argo CD never deletes a namespace it
+# merely auto-created, so removing the app would leave this one behind.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: smoke

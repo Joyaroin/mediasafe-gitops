@@ -3,4 +3,4 @@ kind: ConfigMap
 metadata:
   name: smoke
 data:
-  message: "synced from git"
+  message: "changed by a commit"
