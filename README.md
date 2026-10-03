@@ -12,7 +12,8 @@ the VM itself is `infra/terraform/` there.
 |---|---|
 | `bootstrap/root.yaml` | The one Application applied by hand. It syncs `apps/` |
 | `apps/` | One Application per thing that runs, including Argo CD itself |
-| `platform/<name>/` | Values for the platform charts (Argo CD now; Traefik, cert-manager, Vault, External Secrets later) |
+| `platform/<name>/` | Values for the platform charts: Argo CD, Traefik, cert-manager (Vault and External Secrets later) |
+| `platform/edge/` | The one public Gateway, the HTTP→HTTPS redirect, and the Let's Encrypt issuers |
 | `bootstrap/install` | Installs Argo CD on a fresh cluster. Run once per cluster |
 | `bootstrap/create-deploy-key` | Creates Argo CD's read-only deploy key. Run once, ever |
 
@@ -30,6 +31,12 @@ bootstrap/install
 
 After a VM rebuild, only `bootstrap/install` is needed: the deploy key is already in Bitwarden
 and on GitHub.
+
+## Ordering
+
+`apps/` syncs in waves (`argocd.argoproj.io/sync-wave`): the Gateway API CRDs (-3), then Traefik
+and cert-manager (-2), then the edge (-1), then everything else. Argo CD's config gives each
+Application a health, so a wave waits for the previous one to be **Healthy**, not just created.
 
 ## Upgrading Argo CD
 
