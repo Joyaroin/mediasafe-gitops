@@ -1,8 +1,8 @@
 # Let's Encrypt, answering HTTP-01 challenges through the Gateway's plain-HTTP listener.
 #
-# Staging first: its certificates aren't browser-trusted, but its rate limits are generous, so a
-# misconfiguration costs nothing. The Gateway is switched to letsencrypt-prod once staging
-# issues cleanly.
+# Staging is kept for trying changes to the edge: its certificates aren't browser-trusted, but
+# its rate limits are generous, so a misconfiguration costs nothing. Point the Gateway's
+# annotation at it while experimenting, then back at letsencrypt-prod.
 #
 # No contact email: Let's Encrypt no longer sends expiry mail, and cert-manager renews 30 days
 # before expiry on its own.
