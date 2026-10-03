@@ -14,6 +14,10 @@ spec:
       chart: traefik
       targetRevision: 41.6.1 # Traefik v3.7.13
       helm:
+        # The chart's 27 CRDs are Traefik Hub's (a paid product) and Traefik's own IngressRoute
+        # family — the provider for which is off; routes here are Gateway API HTTPRoutes. Each
+        # CRD costs API-server memory on a 4 GB node, and none is used.
+        skipCrds: true
         valueFiles:
           - $values/platform/traefik/values.yaml
     - repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
