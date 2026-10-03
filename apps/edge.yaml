@@ -1,0 +1,25 @@
+# The cluster's front door: the one public Gateway, its HTTP→HTTPS redirect, and the
+# Let's Encrypt issuers. Wave -1, after Traefik (the GatewayClass) and cert-manager (the
+# ClusterIssuer CRD and its webhook).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: edge
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
+    targetRevision: main
+    path: platform/edge
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gateway
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

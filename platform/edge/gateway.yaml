@@ -1,0 +1,61 @@
+# The one public Gateway. Every hostname the cluster serves is a listener here, and each HTTPS
+# listener's certificate is issued by cert-manager from the annotation below: it creates one
+# Certificate per certificateRefs secret, for that listener's hostname.
+#
+# Ports are Traefik's entrypoint ports (8000/8443), not 80/443: Traefik matches listeners to
+# its entrypoints by port, and its Service maps 80→8000 and 443→8443.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: public
+  namespace: gateway
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-staging
+spec:
+  gatewayClassName: traefik
+  listeners:
+    # Plain HTTP serves two things only: Let's Encrypt's HTTP-01 challenges, and the redirect to
+    # HTTPS for everything else (http-redirect.yaml).
+    - name: http
+      port: 8000
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: All
+
+    - name: https-apex
+      hostname: mediasafe.space
+      port: 8443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: mediasafe-space-tls
+      allowedRoutes:
+        namespaces:
+          from: All
+
+    - name: https-staging
+      hostname: staging.mediasafe.space
+      port: 8443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: staging-mediasafe-space-tls
+      allowedRoutes:
+        namespaces:
+          from: All
+
+    # Certificate issued now; nothing routes here until Argo CD goes public in stage 5.
+    - name: https-argocd
+      hostname: argocd.mediasafe.space
+      port: 8443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: argocd-mediasafe-space-tls
+      allowedRoutes:
+        namespaces:
+          from: All

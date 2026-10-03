@@ -1,0 +1,26 @@
+# Traefik as a Gateway API implementation and nothing else.
+# Chart reference: https://github.com/traefik/traefik-helm-chart/tree/v41.6.1/traefik
+
+providers:
+  kubernetesGateway:
+    enabled: true
+  # Nothing here uses Ingress or Traefik's own IngressRoute CRDs: routes are HTTPRoutes.
+  kubernetesIngress:
+    enabled: false
+  kubernetesCRD:
+    enabled: false
+
+# The GatewayClass, named so Gateways can ask for it. The Gateway itself lives in git, in
+# platform/edge/, with the listeners and certificates this cluster actually serves.
+gatewayClass:
+  enabled: true
+  name: traefik
+gateway:
+  enabled: false
+
+service:
+  spec:
+    # Keep the visitor's real IP. With the default (Cluster) the request is source-NATed and the
+    # app sees an internal address — and Better Auth's rate limiting keys on the client IP. On
+    # one node, Local costs nothing: the only pod is always local.
+    externalTrafficPolicy: Local
