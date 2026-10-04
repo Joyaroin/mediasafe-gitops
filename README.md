@@ -16,6 +16,8 @@ the VM itself is `infra/terraform/` there.
 | `platform/edge/` | The one public Gateway, the HTTP→HTTPS redirect, and the Let's Encrypt issuers |
 | `bootstrap/install` | Installs Argo CD on a fresh cluster. Run once per cluster |
 | `bootstrap/create-deploy-key` | Creates Argo CD's read-only deploy key. Run once, ever |
+| `bootstrap/vault-init` | Initialises Vault and stores the unseal key and root token in Bitwarden. Once per Vault volume |
+| `bootstrap/vault-unseal` | Unseals Vault with the key from Bitwarden. **After every Vault restart** |
 
 ## Bootstrapping a cluster
 
@@ -29,8 +31,18 @@ bootstrap/create-deploy-key   # first time only
 bootstrap/install
 ```
 
-After a VM rebuild, only `bootstrap/install` is needed: the deploy key is already in Bitwarden
-and on GitHub.
+After a VM rebuild, run `bootstrap/install`, wait for Argo CD to bring Vault up, then
+`bootstrap/vault-unseal`: the deploy key and the unseal key are already in Bitwarden, and Vault's
+data is on the volume that was reattached.
+
+## Vault comes back sealed
+
+Every Vault restart — a reboot, a k3s upgrade, a Vault upgrade — leaves it sealed, and apps keep
+running on the Secrets External Secrets already copied, but nothing new syncs until:
+
+```sh
+bootstrap/vault-unseal
+```
 
 ## Ordering
 

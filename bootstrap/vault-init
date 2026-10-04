@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Initialises Vault — once per Vault data volume, never again — and unseals it.
+#
+#   export BW_SESSION="$(bw unlock --raw)"
+#   export KUBECONFIG=~/.kube/mediasafe.yaml
+#   bootstrap/vault-init
+#
+# One unseal key share (ADR 0001: splitting a key among one person is theatre). The unseal key
+# and the root token go straight into Bitwarden and are never printed:
+#   mediasafe/vault-unseal-key   kept for good — every restart needs it, and it is the only
+#                                way to read Vault's data or its snapshots
+#   mediasafe/vault-root-token   temporary — revoked in stage 5e once Google sign-in works
+#
+# The init response is written to a 0600 temp file first and deleted only after both items
+# read back from Bitwarden intact: losing the unseal key at this moment would make the volume
+# unreadable for ever.
+set -euo pipefail
+
+UNSEAL_ITEM=mediasafe/vault-unseal-key
+ROOT_ITEM=mediasafe/vault-root-token
+
+: "${BW_SESSION:?Unlock Bitwarden first: export BW_SESSION=\"\$(bw unlock --raw)\"}"
+bw unlock --check --session "$BW_SESSION" >/dev/null 2>&1 \
+  || { echo "BW_SESSION is stale. Unlock again: export BW_SESSION=\"\$(bw unlock --raw)\"" >&2; exit 1; }
+
+vault() { kubectl -n vault exec -i vault-0 -c vault -- vault "$@"; }
+
+# `vault status` exits 2 when sealed, which is expected here.
+initialized="$(vault status -format=json 2>/dev/null | jq -r .initialized || true)"
+if [[ "$initialized" != "false" ]]; then
+  echo "Vault is already initialised (or unreachable: initialized=$initialized). Nothing done." >&2
+  exit 1
+fi
+for item in "$UNSEAL_ITEM" "$ROOT_ITEM"; do
+  if bw get item "$item" --session "$BW_SESSION" >/dev/null 2>&1; then
+    echo "$item already exists in Bitwarden. Refusing to overwrite it; resolve that first." >&2
+    exit 1
+  fi
+done
+
+umask 077
+init_file="$(mktemp)"
+vault operator init -key-shares=1 -key-threshold=1 -format=json > "$init_file"
+
+store() { # name password notes
+  bw get template item --session "$BW_SESSION" \
+    | jq --arg name "$1" --arg pw "$2" --arg notes "$3" \
+        '.type = 1 | .name = $name | .notes = $notes | .login = {username: null, password: $pw, totp: null, uris: []}' \
+    | bw encode | bw create item --session "$BW_SESSION" >/dev/null
+}
+unseal_key="$(jq -r '.unseal_keys_b64[0]' "$init_file")"
+root_token="$(jq -r '.root_token' "$init_file")"
+store "$UNSEAL_ITEM" "$unseal_key" "Vault unseal key (1 of 1). Needed after every Vault restart, and to read its snapshots. Never delete."
+store "$ROOT_ITEM" "$root_token" "Vault initial root token. Revoke in stage 5e once Google sign-in works, then delete this item."
+bw sync --session "$BW_SESSION" >/dev/null
+
+if [[ "$(bw get password "$UNSEAL_ITEM" --session "$BW_SESSION")" != "$unseal_key" \
+   || "$(bw get password "$ROOT_ITEM" --session "$BW_SESSION")" != "$root_token" ]]; then
+  echo "Bitwarden did not read back what was stored. The init response is still in $init_file —" >&2
+  echo "copy both values into Bitwarden by hand before deleting it." >&2
+  exit 1
+fi
+rm -f "$init_file"
+unset root_token
+
+echo "Initialised. Unseal key and root token are in Bitwarden."
+"$(dirname "$0")/vault-unseal"
