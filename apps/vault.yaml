@@ -1,0 +1,40 @@
+# Vault: one server, integrated Raft storage, data on the Block Storage volume mounted at
+# /mnt/vault-data on the node. Never routed publicly — reached by port-forward and from inside
+# the cluster only.
+#
+# It starts sealed after every restart and waits for a human: Linode has no KMS to auto-unseal
+# with. The pod still reports Ready while sealed (the chart's probe accepts it), so Argo shows
+# the app Healthy; `vault status` is the real check.
+#
+# No resources finalizer: deleting this Application must not delete Vault's PersistentVolume.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vault
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://helm.releases.hashicorp.com
+      chart: vault
+      targetRevision: 0.34.1
+      helm:
+        releaseName: vault
+        valueFiles:
+          - $values/platform/vault/values.yaml
+    - repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
+      targetRevision: main
+      ref: values
+    # The StorageClass and PersistentVolume that pin Vault's data to the volume.
+    - repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
+      targetRevision: main
+      path: platform/vault/storage
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vault
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

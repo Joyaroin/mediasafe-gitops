@@ -1,0 +1,43 @@
+# Vault's data lives on the Linode Block Storage volume, which cloud-init mounts at
+# /mnt/vault-data and which survives the VM being rebuilt. This PersistentVolume is the bridge:
+# a `local` volume at /mnt/vault-data/raft, pinned to the one node, reserved (claimRef) for the
+# exact claim the Vault chart creates, so nothing else can bind it.
+#
+# Both carry Prune=false and Retain: no sync, deletion or uninstall may remove the volume or
+# what is on it. Removing them is a deliberate act done by hand.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: vault-local
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: vault-data
+  annotations:
+    argocd.argoproj.io/sync-options: Prune=false
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: vault-local
+  claimRef:
+    namespace: vault
+    name: data-vault-0
+  local:
+    path: /mnt/vault-data/raft
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - mediasafe

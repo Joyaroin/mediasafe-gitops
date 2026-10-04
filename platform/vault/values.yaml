@@ -1,0 +1,64 @@
+# One Vault server with integrated Raft storage. Chart reference:
+# https://github.com/hashicorp/vault-helm/tree/v0.34.1
+
+# Secrets reach pods through External Secrets, not Vault's sidecar injector.
+injector:
+  enabled: false
+
+server:
+  image:
+    tag: "2.1.1"
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 384Mi
+
+  # Bound to the PersistentVolume in storage/, i.e. the Block Storage volume.
+  dataStorage:
+    enabled: true
+    size: 10Gi
+    storageClass: vault-local
+
+  # /mnt/vault-data/raft is created by cloud-init as root. Vault runs as uid 100 / gid 1000, so
+  # the directory is handed over once before Vault starts. Idempotent: it only sets ownership.
+  extraInitContainers:
+    - name: data-ownership
+      image: busybox:1.37
+      command: ["sh", "-c", "chown 100:1000 /vault/data && chmod 0750 /vault/data"]
+      securityContext:
+        runAsUser: 0
+        runAsNonRoot: false
+      volumeMounts:
+        - name: data
+          mountPath: /vault/data
+
+  standalone:
+    enabled: true
+    config: |-
+      ui = true
+
+      # Plain HTTP: Vault is reachable only inside the cluster and through kubectl port-forward,
+      # which tunnels over the authenticated, encrypted Kubernetes API.
+      listener "tcp" {
+        tls_disable     = 1
+        address         = "[::]:8200"
+        cluster_address = "[::]:8201"
+      }
+
+      storage "raft" {
+        path    = "/vault/data"
+        node_id = "vault-0"
+      }
+
+      # Raft keeps its data on disk, not in memory, so mlock buys nothing and Raft's docs
+      # recommend disabling it.
+      disable_mlock = true
+
+      # Vault 2.0 made sys/generate-root authenticated. The recovery plan in ADR 0001 is: if the
+      # Google admin login ever breaks after the root token is revoked, mint a new root token
+      # with the unseal key alone. That needs the 1.x behaviour back. It is still gated by the
+      # unseal key, which lives only in Bitwarden.
+      enable_unauthenticated_access = ["generate-root"]
