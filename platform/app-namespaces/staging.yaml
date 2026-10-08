@@ -1,0 +1,35 @@
+# mediasafe-staging: the namespace, the identity it reads Vault as, and the store that uses it.
+#
+# The SecretStore logs in to Vault's Kubernetes auth as role eso-mediasafe-staging (infra/vault),
+# with a token for service account vault-reader minted for the audience "vault". That role's
+# policy reads kv/mediasafe/staging/* and nothing else.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mediasafe-staging
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-reader
+  namespace: mediasafe-staging
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: vault
+  namespace: mediasafe-staging
+spec:
+  provider:
+    vault:
+      server: http://vault.vault.svc:8200
+      path: kv
+      version: v2
+      auth:
+        kubernetes:
+          mountPath: kubernetes
+          role: eso-mediasafe-staging
+          serviceAccountRef:
+            name: vault-reader
+            audiences:
+              - vault

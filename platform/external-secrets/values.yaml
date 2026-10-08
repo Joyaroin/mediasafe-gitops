@@ -1,0 +1,42 @@
+# Chart reference: https://github.com/external-secrets/external-secrets/tree/helm-chart-2.11.0/deploy/charts/external-secrets
+#
+# Namespaced SecretStores only. Each app namespace logs in to Vault as its own role, which can
+# read only that environment's path — that is the whole isolation model (ADR 0001). A
+# ClusterSecretStore would let any namespace borrow one role's access, so the cluster-scoped
+# kinds are not installed at all: their CRDs don't exist, and nobody can create one. PushSecret
+# (writing *to* Vault from the cluster) is off for the same reason — nothing here should.
+
+crds:
+  createClusterSecretStore: false
+  createClusterExternalSecret: false
+  createClusterGenerator: false
+  createClusterPushSecret: false
+  createPushSecret: false
+processClusterStore: false
+processClusterExternalSecret: false
+processClusterGenerator: false
+processClusterPushSecret: false
+processPushSecret: false
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    memory: 192Mi
+
+webhook:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 96Mi
+
+certController:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 96Mi

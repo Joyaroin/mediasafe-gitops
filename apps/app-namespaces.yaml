@@ -1,0 +1,25 @@
+# The two app namespaces and their Vault access: for each environment, the namespace, the
+# `vault-reader` service account, and the SecretStore that logs in to Vault as that
+# environment's role. The app itself (stage 6) only adds ExternalSecrets that name the store.
+#
+# Wave -1: after External Secrets (-2), whose CRDs the SecretStores need. No resources
+# finalizer: deleting this Application must never delete the namespaces with the apps in them.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: app-namespaces
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
+    targetRevision: main
+    path: platform/app-namespaces
+  destination:
+    server: https://kubernetes.default.svc
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
