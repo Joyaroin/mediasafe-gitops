@@ -13,6 +13,6 @@ replicas: 2
 
 sweep:
   schedule: "0 9 * * *"
-  # Vercel Cron runs the sweep until the cutover (ADR 0001, stage 9); two sweeps would refresh
-  # the same titles twice. Set to false at the cutover.
-  suspend: true
+  # Runs here since the cutover (ADR 0001, stage 9). Vercel Cron, which ran it before, is
+  # disabled: two sweeps would refresh the same titles twice.
+  suspend: false
