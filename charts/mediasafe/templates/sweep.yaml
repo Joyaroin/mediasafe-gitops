@@ -4,6 +4,10 @@
 #
 # No retry: a failed sweep is reported by the app (Sentry), and the next night's run picks up
 # whatever this one missed.
+#
+# It first waits for the app to answer at all: k3s applies NetworkPolicy to a new pod about a
+# second after it starts, and until then its connections are refused. That wait is separate
+# from the sweep on purpose: curl's --retry would also retry an HTTP 5xx and run the sweep twice.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -42,10 +46,15 @@ spec:
               image: {{ .Values.curlImage }}
               command: ["/bin/sh", "-c"]
               args:
-                - >-
-                  curl -fsS --max-time 1100
-                  -H "Authorization: Bearer $CRON_SECRET"
-                  http://mediasafe/api/cron/nightly-sweep
+                - |
+                  set -eu
+                  i=0
+                  until curl -s -o /dev/null --max-time 2 http://mediasafe/sign-in; do
+                    i=$((i + 1)); [ "$i" -lt 30 ] || { echo "The app did not answer in 30 s." >&2; exit 1; }
+                    sleep 1
+                  done
+                  curl -fsS --max-time 1100 -H "Authorization: Bearer $CRON_SECRET" \
+                    http://mediasafe/api/cron/nightly-sweep
               env:
                 - name: CRON_SECRET
                   valueFrom:

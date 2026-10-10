@@ -36,3 +36,4 @@ valkey:
   maxmemory: 128mb
 
 curlImage: curlimages/curl:8.22.0
+busyboxImage: busybox:1.37

@@ -7,6 +7,10 @@
 # sync, and the running pods keep the old image.
 #
 # BeforeHookCreation keeps the last run's Job (and its logs) until the next sync.
+#
+# The init container waits until the pod can reach the internet: k3s applies NetworkPolicy to
+# a new pod about a second after it starts, and the migrator would otherwise fail its first
+# connection. The rules are per pod, so once the init container gets out, the migrator can.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -35,6 +39,28 @@ spec:
         runAsGroup: 1001
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        - name: wait-for-network
+          image: {{ .Values.busyboxImage }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              i=0
+              until nc -z -w 2 1.1.1.1 443; do
+                i=$((i + 1)); [ "$i" -lt 30 ] || { echo "No route out in 30 s." >&2; exit 1; }
+                sleep 1
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 8Mi
+            limits:
+              memory: 32Mi
       containers:
         - name: migrate
           image: {{ .Values.image.repository }}:{{ .Values.image.tag }}

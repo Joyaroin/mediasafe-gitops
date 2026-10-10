@@ -52,6 +52,14 @@ spec:
               args:
                 - |
                   set -eu
+                  # k3s applies NetworkPolicy to a new pod about a second after it starts, so
+                  # wait for Vault to answer. `vault status` exits 1 only when unreachable
+                  # (2 = sealed, which the login below then reports).
+                  i=0
+                  until vault status >/dev/null 2>&1 || [ $? -eq 2 ]; do
+                    i=$((i + 1)); [ "$i" -lt 30 ] || { echo "Vault did not answer in 30 s." >&2; exit 1; }
+                    sleep 1
+                  done
                   VAULT_TOKEN="$(vault write -field=token auth/kubernetes/login \
                     role=vault-snapshot jwt=@/var/run/secrets/vault/token)"
                   export VAULT_TOKEN
