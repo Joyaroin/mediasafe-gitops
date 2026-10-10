@@ -1,0 +1,58 @@
+# Applies pending migrations before the new image serves anything: `node dist/migrate.mjs`,
+# the runner the Dockerfile bundles next to drizzle/.
+#
+# A Sync hook at wave 0, not a PreSync hook: PreSync runs before every wave, so it would run
+# before the wave -1 ExternalSecret has made DATABASE_URL exist. As a Sync hook it runs after
+# wave -1 is Healthy and before the Deployment (wave 1) changes. A failed migration fails the
+# sync, and the running pods keep the old image.
+#
+# BeforeHookCreation keeps the last run's Job (and its logs) until the next sync.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mediasafe-migrate
+  labels: {{- include "mediasafe.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mediasafe-migrate
+        {{- include "mediasafe.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          command: ["node", "dist/migrate.mjs"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: mediasafe-app
+                  key: DATABASE_URL
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi

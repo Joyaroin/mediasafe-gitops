@@ -1,0 +1,38 @@
+# Defaults for every environment. values-<env>.yaml sets what differs; image.tag is set there
+# by CI, one commit per image.
+
+# Names the Vault paths (kv/mediasafe/<environment>/app and /ghcr), the namespace's
+# SecretStore role, and SENTRY_ENVIRONMENT.
+environment: ""
+
+# Served at https://<hostname>, through the Gateway listener of the same hostname.
+hostname: ""
+gatewayListener: ""
+
+image:
+  repository: ghcr.io/joyaroin/mediasafe
+  # The commit SHA. Never a movable tag: git is the record of what runs.
+  tag: ""
+
+replicas: 1
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 256Mi
+  limits:
+    memory: 512Mi
+
+# The nightly metadata sweep: curl the Service with the bearer CRON_SECRET, exactly as
+# Vercel Cron does today.
+sweep:
+  schedule: "0 9 * * *"
+  suspend: false
+
+valkey:
+  image: valkey/valkey:8.1.10-alpine
+  # Far above what a day of cached reads needs; see templates/valkey.yaml for why it never
+  # evicts.
+  maxmemory: 128mb
+
+curlImage: curlimages/curl:8.22.0

@@ -1,0 +1,65 @@
+# The nightly metadata sweep (app/api/cron/nightly-sweep): a GET with the bearer CRON_SECRET,
+# which is what Vercel Cron sends today. It goes to the Service, not the public hostname, so it
+# never leaves the cluster.
+#
+# No retry: a failed sweep is reported by the app (Sentry), and the next night's run picks up
+# whatever this one missed.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: nightly-sweep
+  labels: {{- include "mediasafe.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  schedule: {{ .Values.sweep.schedule | quote }}
+  timeZone: Etc/UTC
+  suspend: {{ .Values.sweep.suspend }}
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 1200
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: nightly-sweep
+            {{- include "mediasafe.labels" . | nindent 12 }}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 100
+            runAsGroup: 101
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: sweep
+              image: {{ .Values.curlImage }}
+              command: ["/bin/sh", "-c"]
+              args:
+                - >-
+                  curl -fsS --max-time 1100
+                  -H "Authorization: Bearer $CRON_SECRET"
+                  http://mediasafe/api/cron/nightly-sweep
+              env:
+                - name: CRON_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: mediasafe-app
+                      key: CRON_SECRET
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 16Mi
+                limits:
+                  memory: 64Mi

@@ -1,0 +1,28 @@
+# The app on staging.mediasafe.space: charts/mediasafe with values-staging.yaml, into the
+# namespace platform/app-namespaces created with its SecretStore. CI deploys by committing a
+# new image.tag to that values file.
+#
+# No resources finalizer, like every app here: deleting this file must not delete the namespace's
+# Secrets out from under a redeploy.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: mediasafe-staging
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
+    targetRevision: main
+    path: charts/mediasafe
+    helm:
+      releaseName: mediasafe
+      valueFiles:
+        - values-staging.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: mediasafe-staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

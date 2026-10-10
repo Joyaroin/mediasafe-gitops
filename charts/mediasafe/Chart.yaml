@@ -1,0 +1,5 @@
+apiVersion: v2
+name: mediasafe
+description: MediaSafe on k3s — the app, its Valkey, its migration Job and nightly sweep, and the Secrets from Vault.
+type: application
+version: 0.1.0

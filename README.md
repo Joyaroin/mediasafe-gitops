@@ -13,6 +13,7 @@ the VM itself is `infra/terraform/` there.
 | `bootstrap/root.yaml` | The one Application applied by hand. It syncs `apps/` |
 | `apps/` | One Application per thing that runs, including Argo CD itself |
 | `platform/<name>/` | Values for the platform charts, plus anything that runs beside them (`platform/vault/snapshots/`: the nightly snapshot to R2) |
+| `charts/mediasafe/` | The app: Deployment, Service, route, migration Job, nightly sweep, Valkey, and its Secrets from Vault. `values-<env>.yaml` per environment |
 | `platform/edge/` | The one public Gateway, the HTTP→HTTPS redirect, and the Let's Encrypt issuers |
 | `bootstrap/install` | Installs Argo CD on a fresh cluster. Run once per cluster |
 | `bootstrap/create-deploy-key` | Creates Argo CD's read-only deploy key. Run once, ever |

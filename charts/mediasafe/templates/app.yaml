@@ -1,0 +1,126 @@
+# The Next.js standalone server (the Dockerfile's runner stage: uid 1001, port 3000).
+#
+# Probes hit /sign-in: constraint 5 forbids an unauthenticated route, and /sign-in answers
+# 200 even with the database unreachable, so a Neon outage does not restart every pod.
+#
+# Wave 1: after the Secrets, Valkey and the migration.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mediasafe
+  labels: {{- include "mediasafe.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mediasafe
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mediasafe
+        {{- include "mediasafe.labels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          ports:
+            - name: http
+              containerPort: 3000
+          envFrom:
+            - secretRef:
+                name: mediasafe-app
+          env:
+            - name: BETTER_AUTH_URL
+              value: https://{{ .Values.hostname }}
+            - name: VALKEY_URL
+              value: redis://valkey:6379
+            - name: SENTRY_ENVIRONMENT
+              value: {{ .Values.environment | quote }}
+          startupProbe:
+            httpGet:
+              path: /sign-in
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /sign-in
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /sign-in
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          # The only places the server writes: the image optimiser's cache, and temp files.
+          volumeMounts:
+            - name: next-cache
+              mountPath: /app/.next/cache
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: next-cache
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mediasafe
+  labels: {{- include "mediasafe.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  selector:
+    app.kubernetes.io/name: mediasafe
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: mediasafe
+  labels: {{- include "mediasafe.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  parentRefs:
+    - name: public
+      namespace: gateway
+      sectionName: {{ .Values.gatewayListener }}
+  hostnames:
+    - {{ .Values.hostname }}
+  rules:
+    - backendRefs:
+        - name: mediasafe
+          port: 80
