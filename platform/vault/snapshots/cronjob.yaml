@@ -1,0 +1,125 @@
+# Nightly Raft snapshot of Vault, uploaded to R2 (bucket mediasafe-vault-snapshots, created by
+# infra/terraform in the app repo, which deletes objects after 14 days).
+#
+# Two containers share an in-memory emptyDir:
+#   snapshot (init) logs in to Vault as role vault-snapshot (infra/vault) with a token minted for
+#     the audience "vault", saves the snapshot, and reads the R2 key from kv/infra/vault-snapshots.
+#   upload pushes the file to R2 with rclone, which checks the upload's hash.
+# No custom image: each tool comes from its own upstream image, pinned.
+#
+# A sealed Vault fails the snapshot step, so a failed Job here is also the first sign that Vault
+# restarted and is waiting for bootstrap/vault-unseal.
+#
+# Restoring: bootstrap/vault-restore-drill is both the procedure and its test.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-snapshot
+  namespace: vault
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vault-snapshot
+  namespace: vault
+spec:
+  schedule: "0 3 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 600
+      template:
+        spec:
+          serviceAccountName: vault-snapshot
+          automountServiceAccountToken: false
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: snapshot
+              image: hashicorp/vault:2.1.1
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  VAULT_TOKEN="$(vault write -field=token auth/kubernetes/login \
+                    role=vault-snapshot jwt=@/var/run/secrets/vault/token)"
+                  export VAULT_TOKEN
+                  vault operator raft snapshot save /work/vault.snap
+                  mkdir /work/r2
+                  for field in access_key_id secret_access_key endpoint bucket; do
+                    vault kv get -mount=kv -field="$field" infra/vault-snapshots > "/work/r2/$field"
+                  done
+                  vault token revoke -self
+                  ls -l /work/vault.snap
+              env:
+                - name: VAULT_ADDR
+                  value: http://vault.vault.svc:8200
+                - name: HOME
+                  value: /tmp
+              securityContext: &hardened
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources: &small
+                requests:
+                  cpu: 10m
+                  memory: 32Mi
+                limits:
+                  memory: 128Mi
+              volumeMounts:
+                - { name: work, mountPath: /work }
+                - { name: tmp, mountPath: /tmp }
+                - { name: vault-token, mountPath: /var/run/secrets/vault, readOnly: true }
+          containers:
+            - name: upload
+              image: rclone/rclone:1.75.1
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  RCLONE_CONFIG_R2_ACCESS_KEY_ID="$(cat /work/r2/access_key_id)"
+                  RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$(cat /work/r2/secret_access_key)"
+                  RCLONE_CONFIG_R2_ENDPOINT="$(cat /work/r2/endpoint)"
+                  export RCLONE_CONFIG_R2_ACCESS_KEY_ID RCLONE_CONFIG_R2_SECRET_ACCESS_KEY RCLONE_CONFIG_R2_ENDPOINT
+                  name="vault-$(date -u +%Y-%m-%dT%H%M%SZ).snap"
+                  rclone copyto -v /work/vault.snap "r2:$(cat /work/r2/bucket)/$name"
+              env:
+                - { name: HOME, value: /tmp }
+                - { name: RCLONE_CONFIG, value: /tmp/rclone.conf }
+                - { name: RCLONE_CONFIG_R2_TYPE, value: s3 }
+                - { name: RCLONE_CONFIG_R2_PROVIDER, value: Cloudflare }
+                # The key is scoped to objects in one bucket; it may not check or create buckets.
+                - { name: RCLONE_CONFIG_R2_NO_CHECK_BUCKET, value: "true" }
+              securityContext: *hardened
+              resources: *small
+              volumeMounts:
+                - { name: work, mountPath: /work, readOnly: true }
+                - { name: tmp, mountPath: /tmp }
+          volumes:
+            # In memory: it holds the R2 key, which should never touch the node's disk.
+            - name: work
+              emptyDir:
+                medium: Memory
+                sizeLimit: 64Mi
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi
+            - name: vault-token
+              projected:
+                sources:
+                  - serviceAccountToken:
+                      audience: vault
+                      expirationSeconds: 600
+                      path: token

@@ -1,0 +1,209 @@
+#!/usr/bin/env bash
+# Proves last night's backup is a backup: restores the newest snapshot in R2 into a throwaway
+# Vault and reads back a value written just before it was taken. Run it after any change to the
+# snapshot CronJob, Vault's version or the unseal key — and at least once, or the backups are
+# only a hope.
+#
+#   export BW_SESSION="$(bw unlock --raw)"
+#   export KUBECONFIG=~/.kube/mediasafe.yaml
+#   kubectl -n vault port-forward svc/vault 8200:8200 &
+#   export VAULT_ADDR=http://127.0.0.1:8200
+#   vault login -method=oidc
+#   bootstrap/vault-restore-drill
+#
+# What it does, which is also the real restore procedure:
+#   1. writes a unique canary to kv/infra/canary in the live Vault
+#   2. runs the snapshot CronJob once, which uploads to R2
+#   3. starts a throwaway Vault in namespace vault-drill (in-memory Raft, nothing public) whose
+#      init container downloads the newest snapshot
+#   4. initialises it with its own key, then `raft snapshot restore -force` — it reseals
+#   5. unseals it with the ORIGINAL unseal key from Bitwarden
+#   6. mints a root token with that key alone (generate-root), the recovery path ADR 0001 relies
+#      on once the initial root token is revoked
+#   7. reads the canary, then deletes the namespace, the Job and the canary
+#
+# The unseal key travels on stdin only. KEEP=1 leaves vault-drill up for debugging.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+NS=vault-drill
+R2_ITEM=mediasafe/r2-vault-snapshots
+UNSEAL_ITEM=mediasafe/vault-unseal-key
+R2_ENDPOINT=https://e611254754d8c1922b8ead788aab6f40.r2.cloudflarestorage.com
+R2_BUCKET=mediasafe-vault-snapshots
+
+: "${BW_SESSION:?Unlock Bitwarden first: export BW_SESSION=\"\$(bw unlock --raw)\"}"
+bw unlock --check --session "$BW_SESSION" >/dev/null 2>&1 \
+  || { echo "BW_SESSION is stale. Unlock again: export BW_SESSION=\"\$(bw unlock --raw)\"" >&2; exit 1; }
+bw sync --session "$BW_SESSION" >/dev/null
+kubectl get node mediasafe >/dev/null \
+  || { echo "kubectl does not reach the MediaSafe node. export KUBECONFIG=~/.kube/mediasafe.yaml" >&2; exit 1; }
+: "${VAULT_ADDR:?Port-forward Vault and export VAULT_ADDR=http://127.0.0.1:8200 (see the top of this file)}"
+vault token lookup >/dev/null \
+  || { echo "No Vault admin token. Run: vault login -method=oidc" >&2; exit 1; }
+if kubectl get namespace "$NS" >/dev/null 2>&1; then
+  echo "Namespace $NS exists from an earlier drill. Delete it first: kubectl delete namespace $NS" >&2
+  exit 1
+fi
+
+job="vault-snapshot-drill-$(date -u +%Y%m%d%H%M%S)"
+cleanup() {
+  status=$?
+  if [[ $status -ne 0 ]]; then
+    echo "--- FAILED. Logs:" >&2
+    kubectl -n vault logs "job/$job" --all-containers 2>/dev/null >&2 || true
+    kubectl -n "$NS" logs vault-drill --all-containers 2>/dev/null >&2 || true
+  fi
+  vault kv metadata delete -mount=kv infra/canary >/dev/null 2>&1 || true
+  kubectl -n vault delete job "$job" --ignore-not-found >/dev/null
+  if [[ "${KEEP:-}" == 1 ]]; then
+    echo "KEEP=1: leaving namespace $NS. Delete it with: kubectl delete namespace $NS" >&2
+  else
+    kubectl delete namespace "$NS" --ignore-not-found --wait=false >/dev/null
+  fi
+  exit $status
+}
+trap cleanup EXIT
+
+echo "1. Writing the canary"
+canary="drill-$(date -u +%s)-$RANDOM"
+vault kv put -mount=kv infra/canary value="$canary" >/dev/null
+
+echo "2. Taking a snapshot ($job)"
+kubectl -n vault create job "$job" --from=cronjob/vault-snapshot >/dev/null
+kubectl -n vault wait "job/$job" --for=condition=complete --timeout=5m >/dev/null
+kubectl -n vault logs "job/$job" -c upload | tail -n 2
+
+echo "3. Starting a throwaway Vault with the newest snapshot"
+kubectl create namespace "$NS" >/dev/null
+kubectl -n "$NS" create secret generic r2 \
+  --from-file=access_key_id=<(bw get username "$R2_ITEM" --session "$BW_SESSION") \
+  --from-file=secret_access_key=<(bw get password "$R2_ITEM" --session "$BW_SESSION") >/dev/null
+kubectl -n "$NS" apply -f - >/dev/null <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-drill
+data:
+  vault.hcl: |
+    listener "tcp" {
+      tls_disable = 1
+      address     = "127.0.0.1:8200"
+    }
+    storage "raft" {
+      path    = "/vault/data"
+      node_id = "vault-0"
+    }
+    api_addr      = "http://127.0.0.1:8200"
+    cluster_addr  = "http://127.0.0.1:8201"
+    disable_mlock = true
+    enable_unauthenticated_access = ["generate-root"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: vault-drill
+spec:
+  automountServiceAccountToken: false
+  restartPolicy: Never
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    runAsGroup: 65534
+    seccompProfile:
+      type: RuntimeDefault
+  initContainers:
+    - name: download
+      image: rclone/rclone:1.75.1
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -eu
+          RCLONE_CONFIG_R2_ACCESS_KEY_ID="\$(cat /r2/access_key_id)"
+          RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="\$(cat /r2/secret_access_key)"
+          export RCLONE_CONFIG_R2_ACCESS_KEY_ID RCLONE_CONFIG_R2_SECRET_ACCESS_KEY
+          newest="\$(rclone lsf --files-only r2:$R2_BUCKET | sort | tail -n 1)"
+          echo "Restoring \$newest"
+          rclone copyto "r2:$R2_BUCKET/\$newest" /restore/vault.snap
+      env:
+        - { name: HOME, value: /tmp }
+        - { name: RCLONE_CONFIG, value: /tmp/rclone.conf }
+        - { name: RCLONE_CONFIG_R2_TYPE, value: s3 }
+        - { name: RCLONE_CONFIG_R2_PROVIDER, value: Cloudflare }
+        - { name: RCLONE_CONFIG_R2_ENDPOINT, value: "$R2_ENDPOINT" }
+        - { name: RCLONE_CONFIG_R2_NO_CHECK_BUCKET, value: "true" }
+      securityContext: &hardened
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        - { name: r2, mountPath: /r2, readOnly: true }
+        - { name: restore, mountPath: /restore }
+        - { name: tmp, mountPath: /tmp }
+  containers:
+    - name: vault
+      image: hashicorp/vault:2.1.1
+      command: ["vault", "server", "-config=/config/vault.hcl"]
+      env:
+        - { name: VAULT_ADDR, value: "http://127.0.0.1:8200" }
+        - { name: HOME, value: /tmp }
+      securityContext: *hardened
+      resources:
+        requests: { cpu: 50m, memory: 128Mi }
+        limits: { memory: 384Mi }
+      volumeMounts:
+        - { name: config, mountPath: /config, readOnly: true }
+        - { name: restore, mountPath: /restore, readOnly: true }
+        - { name: data, mountPath: /vault/data }
+        - { name: tmp, mountPath: /tmp }
+  volumes:
+    - { name: config, configMap: { name: vault-drill } }
+    - { name: r2, secret: { secretName: r2 } }
+    - { name: restore, emptyDir: { medium: Memory, sizeLimit: 64Mi } }
+    - { name: data, emptyDir: { medium: Memory, sizeLimit: 128Mi } }
+    - { name: tmp, emptyDir: { sizeLimit: 16Mi } }
+EOF
+kubectl -n "$NS" wait pod/vault-drill --for=condition=Ready --timeout=3m >/dev/null
+kubectl -n "$NS" logs vault-drill -c download
+
+dv() { kubectl -n "$NS" exec -i vault-drill -c vault -- vault "$@"; }
+api() { # path — POSTs stdin to the throwaway Vault's API
+  kubectl -n "$NS" exec -i vault-drill -c vault -- sh -c \
+    "wget -qO- --header 'Content-Type: application/json' --post-file /dev/stdin http://127.0.0.1:8200/v1/$1"
+}
+sealed() { dv status -format=json 2>/dev/null | jq -r .sealed || true; }
+wait_sealed() { # true|false
+  for _ in $(seq 30); do [[ "$(sealed)" == "$1" ]] && return 0; sleep 2; done
+  echo "Timed out waiting for sealed=$1 (now $(sealed))" >&2; return 1
+}
+wait_sealed true
+
+echo "4. Initialising it and restoring the snapshot over it"
+init="$(dv operator init -key-shares=1 -key-threshold=1 -format=json)"
+jq -c '{key: .unseal_keys_b64[0]}' <<<"$init" | api sys/unseal >/dev/null
+wait_sealed false
+kubectl -n "$NS" exec -i vault-drill -c vault -- \
+  env VAULT_TOKEN="$(jq -r .root_token <<<"$init")" \
+  vault operator raft snapshot restore -force /restore/vault.snap
+wait_sealed true
+
+echo "5. Unsealing with the original unseal key"
+bw get password "$UNSEAL_ITEM" --session "$BW_SESSION" | jq -Rc '{key: .}' | api sys/unseal >/dev/null
+wait_sealed false
+
+echo "6. Minting a root token with the unseal key alone"
+otp="$(dv operator generate-root -generate-otp)"
+nonce="$(jq -nc --arg otp "$otp" '{otp: $otp}' | api sys/generate-root/attempt | jq -r .nonce)"
+encoded="$(bw get password "$UNSEAL_ITEM" --session "$BW_SESSION" \
+  | jq -Rc --arg nonce "$nonce" '{key: ., nonce: $nonce}' | api sys/generate-root/update | jq -r .encoded_token)"
+token="$(dv operator generate-root -decode="$encoded" -otp="$otp")"
+
+echo "7. Reading the canary"
+restored="$(kubectl -n "$NS" exec -i vault-drill -c vault -- \
+  env VAULT_TOKEN="$token" vault kv get -mount=kv -field=value infra/canary)"
+if [[ "$restored" != "$canary" ]]; then
+  echo "Canary mismatch: wrote $canary, restored $restored" >&2
+  exit 1
+fi
+echo "PASS: the newest snapshot restores, the original unseal key opens it, and generate-root works."

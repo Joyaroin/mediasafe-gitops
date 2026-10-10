@@ -12,12 +12,13 @@ the VM itself is `infra/terraform/` there.
 |---|---|
 | `bootstrap/root.yaml` | The one Application applied by hand. It syncs `apps/` |
 | `apps/` | One Application per thing that runs, including Argo CD itself |
-| `platform/<name>/` | Values for the platform charts: Argo CD, Traefik, cert-manager (Vault and External Secrets later) |
+| `platform/<name>/` | Values for the platform charts, plus anything that runs beside them (`platform/vault/snapshots/`: the nightly snapshot to R2) |
 | `platform/edge/` | The one public Gateway, the HTTP→HTTPS redirect, and the Let's Encrypt issuers |
 | `bootstrap/install` | Installs Argo CD on a fresh cluster. Run once per cluster |
 | `bootstrap/create-deploy-key` | Creates Argo CD's read-only deploy key. Run once, ever |
 | `bootstrap/vault-init` | Initialises Vault and stores the unseal key and root token in Bitwarden. Once per Vault volume |
 | `bootstrap/vault-unseal` | Unseals Vault with the key from Bitwarden. **After every Vault restart** |
+| `bootstrap/vault-restore-drill` | Restores the newest R2 snapshot into a throwaway Vault and reads a canary back. The restore procedure, and its test |
 
 ## Bootstrapping a cluster
 

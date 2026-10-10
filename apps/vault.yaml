@@ -29,6 +29,10 @@ spec:
     - repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
       targetRevision: main
       path: platform/vault/storage
+    # The nightly snapshot to R2.
+    - repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
+      targetRevision: main
+      path: platform/vault/snapshots
   destination:
     server: https://kubernetes.default.svc
     namespace: vault
