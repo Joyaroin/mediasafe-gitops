@@ -1,0 +1,18 @@
+# mediasafe.space. Prod takes an image only from staging, through the app repo's promote.yml,
+# which copies values-staging.yaml's tag here.
+environment: prod
+hostname: mediasafe.space
+gatewayListener: https-apex
+
+image:
+  tag: a760d34daccef7e8e91e3e58e466be41e9e61f86
+
+# Two, so a rolling deploy or one pod's crash leaves the site up. They share one Valkey, which
+# is what keeps a write on one replica from leaving the other's cache stale.
+replicas: 2
+
+sweep:
+  schedule: "0 9 * * *"
+  # Vercel Cron runs the sweep until the cutover (ADR 0001, stage 9); two sweeps would refresh
+  # the same titles twice. Set to false at the cutover.
+  suspend: true
