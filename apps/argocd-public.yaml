@@ -1,0 +1,24 @@
+# Argo CD on the internet: the Google sign-in client synced from Vault, and the route from the
+# Gateway. Kept out of apps/argocd.yaml so that bootstrap/install (which renders only the chart)
+# stays independent of Vault, and so a sealed Vault degrades this app, not Argo CD itself.
+#
+# Until Vault is unsealed on a fresh cluster the Secret is missing and Google sign-in fails;
+# kubectl port-forward and the CLI's --core mode still work.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-public
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
+    targetRevision: main
+    path: platform/argocd-public
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true

@@ -1,0 +1,19 @@
+# argocd.mediasafe.space → argocd-server, through the Gateway's https-argocd listener (TLS ends
+# at Traefik). Only Google sign-in is meant to work here; the local admin account is turned off
+# once that has been shown to work.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: argocd
+  namespace: argocd
+spec:
+  parentRefs:
+    - name: public
+      namespace: gateway
+      sectionName: https-argocd
+  hostnames:
+    - argocd.mediasafe.space
+  rules:
+    - backendRefs:
+        - name: argocd-server
+          port: 80

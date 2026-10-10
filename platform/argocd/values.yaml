@@ -4,7 +4,7 @@
 global:
   domain: argocd.mediasafe.space
 
-# Sign-in will be Google OIDC, which Argo CD speaks natively (stage 5). No Dex needed.
+# Sign-in is Google OIDC, which Argo CD speaks natively. No Dex needed.
 dex:
   enabled: false
 
@@ -19,12 +19,24 @@ applicationSet:
 
 configs:
   params:
-    # TLS will terminate at Traefik (stage 4), which talks plain HTTP to argocd-server.
-    # Until then the UI is reached only by port-forward.
+    # TLS terminates at Traefik, which talks plain HTTP to argocd-server
+    # (platform/argocd-public/httproute.yaml).
     server.insecure: true
   cm:
-    # The local admin account, until Google sign-in replaces it in stage 5.
+    # The local admin account, until Google sign-in is shown to work; then false.
     admin.enabled: true
+
+    # Google sign-in. The client is "MediaSafe admin", the same one Vault's admin login uses.
+    # Its id and secret come from Secret argocd-google-oidc, which External Secrets syncs from
+    # Vault's kv/infra/argocd/google-oidc (platform/argocd-public/). Argo CD resolves
+    # $<secret>:<key> only in Secrets labelled app.kubernetes.io/part-of: argocd.
+    # The callback, https://argocd.mediasafe.space/auth/callback, is registered on the client.
+    oidc.config: |
+      name: Google
+      issuer: https://accounts.google.com
+      clientID: $argocd-google-oidc:clientID
+      clientSecret: $argocd-google-oidc:clientSecret
+      requestedScopes: ["openid", "profile", "email"]
 
     # Gives each child Application a health, so the root app's sync waves wait for a wave to be
     # Healthy before starting the next — not merely created. Without it, cert-manager could
@@ -43,3 +55,11 @@ configs:
         end
       end
       return hs
+
+  # One person administers this cluster; any other Google account that signs in gets nothing
+  # (policy.default is empty). Matched on the email claim, since Google sends no groups.
+  rbac:
+    policy.default: ""
+    policy.csv: |
+      g, adhamseddik546@gmail.com, role:admin
+    scopes: "[email]"

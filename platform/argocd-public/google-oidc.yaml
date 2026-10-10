@@ -1,0 +1,58 @@
+# Argo CD's Google sign-in client, from Vault. Same pattern as the app namespaces: the
+# SecretStore logs in to Vault's Kubernetes auth as role eso-argocd (infra/vault), with a token
+# for service account vault-reader minted for the audience "vault". That role's policy reads
+# kv/infra/argocd/* and nothing else.
+#
+# The Secret carries app.kubernetes.io/part-of: argocd, without which Argo CD will not resolve
+# the $argocd-google-oidc:<key> references in its oidc.config.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-reader
+  namespace: argocd
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: vault
+  namespace: argocd
+spec:
+  provider:
+    vault:
+      server: http://vault.vault.svc:8200
+      path: kv
+      version: v2
+      auth:
+        kubernetes:
+          mountPath: kubernetes
+          role: eso-argocd
+          serviceAccountRef:
+            name: vault-reader
+            audiences:
+              - vault
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: argocd-google-oidc
+  namespace: argocd
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: SecretStore
+    name: vault
+  target:
+    name: argocd-google-oidc
+    template:
+      metadata:
+        labels:
+          app.kubernetes.io/part-of: argocd
+  data:
+    - secretKey: clientID
+      remoteRef:
+        key: infra/argocd/google-oidc
+        property: clientID
+    - secretKey: clientSecret
+      remoteRef:
+        key: infra/argocd/google-oidc
+        property: clientSecret
