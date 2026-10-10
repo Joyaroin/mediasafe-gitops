@@ -3,14 +3,11 @@
 environment: prod
 hostname: mediasafe.space
 gatewayListener: https-apex
-
 image:
-  tag: a760d34daccef7e8e91e3e58e466be41e9e61f86
-
+  tag: 9beb9dee1d401617e3eb53cfede0dfdc2298a9cb
 # Two, so a rolling deploy or one pod's crash leaves the site up. They share one Valkey, which
 # is what keeps a write on one replica from leaving the other's cache stale.
 replicas: 2
-
 sweep:
   schedule: "0 9 * * *"
   # Runs here since the cutover (ADR 0001, stage 9). Vercel Cron, which ran it before, is
