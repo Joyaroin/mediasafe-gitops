@@ -4,6 +4,11 @@
 # 200 even with the database unreachable, so a Neon outage does not restart every pod.
 #
 # Wave 1: after the Secrets, Valkey and the migration.
+#
+# Rollouts drop no requests: a new pod must stay Ready for minReadySeconds before an old one is
+# retired (k3s applies a new pod's NetworkPolicy about a second late), and a retiring pod keeps
+# serving for its preStop sleep while Traefik stops sending it traffic. Without both, a deploy
+# answered 502 for a moment (seen on staging, 2026-10-10).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,6 +18,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "1"
 spec:
   replicas: {{ .Values.replicas }}
+  minReadySeconds: 5
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -76,6 +82,10 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
           resources: {{- toYaml .Values.resources | nindent 12 }}
           # The only places the server writes: the image optimiser's cache, and temp files.
           volumeMounts:
