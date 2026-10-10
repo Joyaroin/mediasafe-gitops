@@ -33,6 +33,10 @@ spec:
     - repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
       targetRevision: main
       path: platform/vault/snapshots
+    # Who may reach Vault on the pod network.
+    - repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
+      targetRevision: main
+      path: platform/vault/network
   destination:
     server: https://kubernetes.default.svc
     namespace: vault

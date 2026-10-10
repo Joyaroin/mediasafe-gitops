@@ -1,0 +1,127 @@
+# Default deny in this namespace, then exactly the traffic the app needs. k3s enforces these
+# with its embedded kube-router controller.
+#
+#   Traefik ──3000──▶ app ──6379──▶ Valkey
+#   sweep   ──3000──▶ app ──443───▶ internet (Neon over WebSocket, Google, TMDB, Sentry)
+#   migrate ──443───▶ internet (Neon)
+#   everyone ──53───▶ CoreDNS
+#
+# "Internet" is every address except private, shared and link-local ranges: that keeps the
+# cluster (pods 10.42/16, services 10.43/16) and Linode's metadata service (169.254.169.254) out
+# of reach. Policies can't name hostnames, so port 443 to the internet is as narrow as it gets.
+# Nothing here may reach Vault: External Secrets reads it from its own namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  labels: {{- include "mediasafe.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  labels: {{- include "mediasafe.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mediasafe
+  labels: {{- include "mediasafe.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mediasafe
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: nightly-sweep
+      ports:
+        - { protocol: TCP, port: 3000 }
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: valkey
+      ports:
+        - { protocol: TCP, port: 6379 }
+    - to:
+        - {{- include "mediasafe.internet" . | nindent 10 }}
+      ports:
+        - { protocol: TCP, port: 443 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mediasafe-migrate
+  labels: {{- include "mediasafe.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: mediasafe-migrate
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - {{- include "mediasafe.internet" . | nindent 10 }}
+      ports:
+        - { protocol: TCP, port: 443 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: valkey
+  labels: {{- include "mediasafe.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: valkey
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mediasafe
+      ports:
+        - { protocol: TCP, port: 6379 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: nightly-sweep
+  labels: {{- include "mediasafe.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: nightly-sweep
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: mediasafe
+      ports:
+        - { protocol: TCP, port: 3000 }

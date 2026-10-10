@@ -1,0 +1,28 @@
+# Who may talk to Vault: External Secrets (its own namespace) and pods in this namespace (the
+# snapshot CronJob, and Vault reaching its own cluster port). Nothing else in the cluster, and
+# in particular not the app namespaces. Port-forward is unaffected: it enters the pod through
+# the kubelet, not the pod network.
+#
+# Ingress only. Vault's egress (the Kubernetes API, for service-account logins) is left open:
+# the API server is on the node's public IP, and pinning that address here would break on the
+# next VM rebuild.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: vault-server
+  namespace: vault
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: vault
+      component: server
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: external-secrets
+        - podSelector: {}
+      ports:
+        - { protocol: TCP, port: 8200 }
+        - { protocol: TCP, port: 8201 }

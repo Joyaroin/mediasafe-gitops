@@ -4,6 +4,8 @@
 #
 # Ports are Traefik's entrypoint ports (8000/8443), not 80/443: Traefik matches listeners to
 # its entrypoints by port, and its Service maps 80→8000 and 443→8443.
+#
+# Each hostname accepts routes from one namespace only, so no other namespace can claim it.
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -15,13 +17,14 @@ spec:
   gatewayClassName: traefik
   listeners:
     # Plain HTTP serves two things only: Let's Encrypt's HTTP-01 challenges, and the redirect to
-    # HTTPS for everything else (http-redirect.yaml).
+    # HTTPS for everything else (http-redirect.yaml). Both routes live in this namespace: the
+    # challenge routes are created next to the Certificates, which are here.
     - name: http
       port: 8000
       protocol: HTTP
       allowedRoutes:
         namespaces:
-          from: All
+          from: Same
 
     - name: https-apex
       hostname: mediasafe.space
@@ -33,7 +36,10 @@ spec:
           - name: mediasafe-space-tls
       allowedRoutes:
         namespaces:
-          from: All
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: mediasafe-prod
 
     - name: https-staging
       hostname: staging.mediasafe.space
@@ -45,9 +51,11 @@ spec:
           - name: staging-mediasafe-space-tls
       allowedRoutes:
         namespaces:
-          from: All
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: mediasafe-staging
 
-    # Certificate issued now; nothing routes here until Argo CD goes public in stage 5.
     - name: https-argocd
       hostname: argocd.mediasafe.space
       port: 8443
@@ -58,4 +66,7 @@ spec:
           - name: argocd-mediasafe-space-tls
       allowedRoutes:
         namespaces:
-          from: All
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: argocd
