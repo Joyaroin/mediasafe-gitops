@@ -23,8 +23,10 @@ configs:
     # (platform/argocd-public/httproute.yaml).
     server.insecure: true
   cm:
-    # The local admin account, until Google sign-in is shown to work; then false.
-    admin.enabled: true
+    # No local admin account: Google sign-in is the only way in through the UI or API. If it
+    # breaks, `kubectl -n argocd port-forward` doesn't help (it needs a login too); fix
+    # oidc.config here or use the CLI's --core mode, which talks to Kubernetes directly.
+    admin.enabled: false
 
     # Google sign-in. The client is "MediaSafe admin", the same one Vault's admin login uses.
     # Its id and secret come from Secret argocd-google-oidc, which External Secrets syncs from

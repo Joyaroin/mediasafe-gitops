@@ -50,8 +50,8 @@ bootstrap/vault-unseal
 https://argocd.mediasafe.space, with Google. Only `adhamseddik546@gmail.com` gets a role
 (`platform/argocd/values.yaml`); anyone else who signs in sees nothing. The client's id and
 secret live in Vault at `kv/infra/argocd/google-oidc` and reach Argo CD through
-`platform/argocd-public/`. If Vault is sealed or the site is down, port-forward still works:
-`kubectl -n argocd port-forward svc/argocd-server 8080:80`.
+`platform/argocd-public/`. There is no local admin account. If Vault is sealed or sign-in breaks,
+`argocd --core` talks to Kubernetes directly, with no Argo login.
 
 ## Ordering
 
