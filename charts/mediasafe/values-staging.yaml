@@ -3,7 +3,7 @@ environment: staging
 hostname: staging.mediasafe.space
 gatewayListener: https-staging
 image:
-  tag: f7b3f480e1587ce9143a457a980bddbe45a10863
+  tag: 92d3d58b88f67d5613a990e06beaeb31f6b6ff00
 sweep:
   # Two hours before prod's, so a sweep that breaks on new code breaks here first.
   schedule: "0 7 * * *"
