@@ -1,10 +1,26 @@
 # mediasafe-gitops
 
-Everything that runs on MediaSafe's k3s cluster, synced by Argo CD. **A commit here is the
-only way the cluster changes**: Argo CD syncs automatically, prunes what is removed, and
-reverts hand edits. The decision record is
-[ADR 0001 in the app repo](https://github.com/Joyaroin/MediaSafe/blob/main/docs/adr/0001-deploy-to-k3s-on-linode-with-gitops.md);
-the VM itself is `infra/terraform/` there.
+Everything that runs on the k3s cluster behind **[mediasafe.space](https://mediasafe.space)**,
+synced by Argo CD. The app's code, its CI, and the Terraform that creates the VM live in
+**[Joyaroin/MediaSafe](https://github.com/Joyaroin/MediaSafe)**; this repository is the desired
+state of the cluster, and **a commit here is the only way the cluster changes**: Argo CD syncs
+automatically, prunes what is removed, and reverts hand edits. The decision record is
+[ADR 0001 in the app repo](https://github.com/Joyaroin/MediaSafe/blob/main/docs/adr/0001-deploy-to-k3s-on-linode-with-gitops.md).
+
+## What runs on the cluster
+
+| | |
+|---|---|
+| **Argo CD** | Syncs this repo, app-of-apps from `bootstrap/root.yaml`. Manages its own install too |
+| **Traefik** + **Gateway API** | The one public entry point: a `Gateway` with HTTPS listeners per hostname, and an `HTTPRoute` per app |
+| **cert-manager** | Let's Encrypt certificates for every listener, issued through HTTP-01 |
+| **Vault** | Every secret, on a block volume that outlives the VM, snapshotted nightly to Cloudflare R2 |
+| **External Secrets** | Copies each namespace's secrets out of Vault into Kubernetes Secrets |
+| **MediaSafe** ×2 | `mediasafe-staging` and `mediasafe-prod` from one Helm chart: the Next.js app, a Valkey cache, a migration Job that runs before each rollout, and a nightly CronJob |
+
+Deploys are commits too: CI in the app repo writes a new image tag to
+`charts/mediasafe/values-staging.yaml` on every merge (the `Deploy MediaSafe … to staging`
+commits), and a promote workflow copies it to `values-prod.yaml`.
 
 ## Layout
 
