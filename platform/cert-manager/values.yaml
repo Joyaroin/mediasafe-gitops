@@ -9,6 +9,6 @@ config:
   apiVersion: controller.config.cert-manager.io/v1alpha1
   kind: ControllerConfiguration
   # Issue certificates for Gateway listeners (the cert-manager.io/cluster-issuer annotation on
-  # platform/edge/gateway.yaml), and answer HTTP-01 challenges with HTTPRoutes.
+  # platform/edge/gateway.yaml). Challenges are DNS-01, through Cloudflare.
   gatewayAPI:
     enabled: true

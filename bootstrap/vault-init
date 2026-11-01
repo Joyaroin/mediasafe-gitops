@@ -2,7 +2,7 @@
 # Initialises Vault — once per Vault data volume, never again — and unseals it.
 #
 #   export BW_SESSION="$(bw unlock --raw)"
-#   export KUBECONFIG=~/.kube/mediasafe.yaml
+#   export KUBECONFIG=~/.kube/homelab.yaml
 #   bootstrap/vault-init
 #
 # One unseal key share (ADR 0001: splitting a key among one person is theatre). The unseal key

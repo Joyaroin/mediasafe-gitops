@@ -1,4 +1,7 @@
-# Let's Encrypt, answering HTTP-01 challenges through the Gateway's plain-HTTP listener.
+# Let's Encrypt, proving each hostname with a DNS-01 challenge: cert-manager writes a TXT record
+# through Cloudflare's API. HTTP-01 is not possible here — the cluster has no public port 80.
+# The API token (Zone → DNS → Edit on mediasafe.space only) comes from Vault through
+# cloudflare-api-token.yaml.
 #
 # Staging is kept for trying changes to the edge: its certificates aren't browser-trusted, but
 # its rate limits are generous, so a misconfiguration costs nothing. Point the Gateway's
@@ -16,13 +19,11 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-staging-account
     solvers:
-      - http01:
-          gatewayHTTPRoute:
-            parentRefs:
-              - kind: Gateway
-                name: public
-                namespace: gateway
-                sectionName: http
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: apiToken
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -34,10 +35,8 @@ spec:
     privateKeySecretRef:
       name: letsencrypt-prod-account
     solvers:
-      - http01:
-          gatewayHTTPRoute:
-            parentRefs:
-              - kind: Gateway
-                name: public
-                namespace: gateway
-                sectionName: http
+      - dns01:
+          cloudflare:
+            apiTokenSecretRef:
+              name: cloudflare-api-token
+              key: apiToken

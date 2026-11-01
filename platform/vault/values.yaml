@@ -16,13 +16,13 @@ server:
     limits:
       memory: 384Mi
 
-  # Bound to the PersistentVolume in storage/, i.e. the Block Storage volume.
+  # Bound to the PersistentVolume in storage/, i.e. /mnt/vault-data/raft on the node.
   dataStorage:
     enabled: true
     size: 10Gi
     storageClass: vault-local
 
-  # /mnt/vault-data/raft is created by cloud-init as root. Vault runs as uid 100 / gid 1000, so
+  # /mnt/vault-data/raft is created by the k3s install script as root. Vault runs as uid 100 / gid 1000, so
   # the directory is handed over once before Vault starts. Idempotent: it only sets ownership.
   extraInitContainers:
     - name: data-ownership

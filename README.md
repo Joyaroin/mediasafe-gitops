@@ -1,7 +1,8 @@
 # mediasafe-gitops
 
 Everything that runs on the k3s cluster behind **[mediasafe.space](https://mediasafe.space)**,
-synced by Argo CD. The app's code, its CI, and the Terraform that creates the VM live in
+synced by Argo CD. The cluster is one mini PC at home (`jonathan`), reached from the internet only
+through a Cloudflare Tunnel. The app's code, its CI, and the Terraform for Cloudflare live in
 **[Joyaroin/MediaSafe](https://github.com/Joyaroin/MediaSafe)**; this repository is the desired
 state of the cluster, and **a commit here is the only way the cluster changes**: Argo CD syncs
 automatically, prunes what is removed, and reverts hand edits. The decision record is
@@ -12,9 +13,10 @@ automatically, prunes what is removed, and reverts hand edits. The decision reco
 | | |
 |---|---|
 | **Argo CD** | Syncs this repo, app-of-apps from `bootstrap/root.yaml`. Manages its own install too |
-| **Traefik** + **Gateway API** | The one public entry point: a `Gateway` with HTTPS listeners per hostname, and an `HTTPRoute` per app |
-| **cert-manager** | Let's Encrypt certificates for every listener, issued through HTTP-01 |
-| **Vault** | Every secret, on a block volume that outlives the VM, snapshotted nightly to Cloudflare R2 |
+| **cloudflared** | The Cloudflare Tunnel: the only way in from the internet. It dials out, so the home network opens no ports |
+| **Traefik** + **Gateway API** | Behind the tunnel: a `Gateway` with HTTPS listeners per hostname, and an `HTTPRoute` per app |
+| **cert-manager** | Let's Encrypt certificates for every listener, issued through DNS-01 on Cloudflare |
+| **Vault** | Every secret, on the node's disk, snapshotted nightly to Cloudflare R2 |
 | **External Secrets** | Copies each namespace's secrets out of Vault into Kubernetes Secrets |
 | **MediaSafe** ×2 | `mediasafe-staging` and `mediasafe-prod` from one Helm chart: the Next.js app, a Valkey cache, a migration Job that runs before each rollout, and a nightly CronJob |
 
@@ -30,7 +32,8 @@ commits), and a promote workflow copies it to `values-prod.yaml`.
 | `apps/` | One Application per thing that runs, including Argo CD itself |
 | `platform/<name>/` | Values for the platform charts, plus anything that runs beside them (`platform/vault/snapshots/`: the nightly snapshot to R2) |
 | `charts/mediasafe/` | The app: Deployment, Service, route, migration Job, nightly sweep, Valkey, and its Secrets from Vault. `values-<env>.yaml` per environment |
-| `platform/edge/` | The one public Gateway, the HTTP→HTTPS redirect, and the Let's Encrypt issuers |
+| `platform/edge/` | The one Gateway, and the Let's Encrypt issuers with their Cloudflare token |
+| `bootstrap/install-k3s` | Installs k3s on the node, with the settings the rest assumes. Run once per machine |
 | `bootstrap/install` | Installs Argo CD on a fresh cluster. Run once per cluster |
 | `bootstrap/create-deploy-key` | Creates Argo CD's read-only deploy key. Run once, ever |
 | `bootstrap/vault-init` | Initialises Vault and stores the unseal key and root token in Bitwarden. Once per Vault volume |
@@ -39,19 +42,22 @@ commits), and a promote workflow copies it to `values-prod.yaml`.
 
 ## Bootstrapping a cluster
 
-Needs the Bitwarden CLI unlocked and the kubeconfig from `infra/terraform/fetch-kubeconfig`.
+Needs k3s on the node (`bootstrap/install-k3s`), the Bitwarden CLI unlocked, and the kubeconfig:
+`scp jonathan:.kube/config ~/.kube/homelab.yaml`, with `server:` changed to
+`https://100.120.217.8:6443`, the node's Tailscale address.
 
 ```sh
 export BW_SESSION="$(bw unlock --raw)"
-export KUBECONFIG=~/.kube/mediasafe.yaml
+export KUBECONFIG=~/.kube/homelab.yaml
 
 bootstrap/create-deploy-key   # first time only
 bootstrap/install
 ```
 
-After a VM rebuild, run `bootstrap/install`, wait for Argo CD to bring Vault up, then
-`bootstrap/vault-unseal`: the deploy key and the unseal key are already in Bitwarden, and Vault's
-data is on the volume that was reattached.
+After reinstalling k3s on the same disk, run `bootstrap/install`, wait for Argo CD to bring Vault
+up, then `bootstrap/vault-unseal`: the deploy key and the unseal key are already in Bitwarden, and
+Vault's data is still in `/mnt/vault-data`. If the disk itself is lost, Vault starts empty:
+restore it from the newest R2 snapshot, by the procedure in `bootstrap/vault-restore-drill`.
 
 ## Vault comes back sealed
 

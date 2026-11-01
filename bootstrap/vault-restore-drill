@@ -5,7 +5,7 @@
 # only a hope.
 #
 #   export BW_SESSION="$(bw unlock --raw)"
-#   export KUBECONFIG=~/.kube/mediasafe.yaml
+#   export KUBECONFIG=~/.kube/homelab.yaml
 #   kubectl -n vault port-forward svc/vault 8200:8200 &
 #   export VAULT_ADDR=http://127.0.0.1:8200
 #   vault login -method=oidc
@@ -36,8 +36,8 @@ R2_BUCKET=mediasafe-vault-snapshots
 bw unlock --check --session "$BW_SESSION" >/dev/null 2>&1 \
   || { echo "BW_SESSION is stale. Unlock again: export BW_SESSION=\"\$(bw unlock --raw)\"" >&2; exit 1; }
 bw sync --session "$BW_SESSION" >/dev/null
-kubectl get node mediasafe >/dev/null \
-  || { echo "kubectl does not reach the MediaSafe node. export KUBECONFIG=~/.kube/mediasafe.yaml" >&2; exit 1; }
+kubectl get node jonathan >/dev/null \
+  || { echo "kubectl does not reach the home-lab node (jonathan). export KUBECONFIG=~/.kube/homelab.yaml" >&2; exit 1; }
 : "${VAULT_ADDR:?Port-forward Vault and export VAULT_ADDR=http://127.0.0.1:8200 (see the top of this file)}"
 vault token lookup >/dev/null \
   || { echo "No Vault admin token. Run: vault login -method=oidc" >&2; exit 1; }

@@ -1,0 +1,46 @@
+# The tunnel's token, from Vault. Same pattern as the app namespaces: the SecretStore logs in to
+# Vault's Kubernetes auth as role eso-cloudflared (infra/vault), whose policy reads
+# kv/infra/cloudflared/* and nothing else.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-reader
+  namespace: cloudflared
+---
+apiVersion: external-secrets.io/v1
+kind: SecretStore
+metadata:
+  name: vault
+  namespace: cloudflared
+spec:
+  provider:
+    vault:
+      server: http://vault.vault.svc:8200
+      path: kv
+      version: v2
+      auth:
+        kubernetes:
+          mountPath: kubernetes
+          role: eso-cloudflared
+          serviceAccountRef:
+            name: vault-reader
+            audiences:
+              - vault
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: tunnel-token
+  namespace: cloudflared
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: SecretStore
+    name: vault
+  target:
+    name: tunnel-token
+  data:
+    - secretKey: token
+      remoteRef:
+        key: infra/cloudflared/tunnel
+        property: token

@@ -1,8 +1,7 @@
-# Vault: one server, integrated Raft storage, data on the Block Storage volume mounted at
-# /mnt/vault-data on the node. Never routed publicly — reached by port-forward and from inside
-# the cluster only.
+# Vault: one server, integrated Raft storage, data in /mnt/vault-data on the node's disk. Never
+# routed publicly — reached by port-forward and from inside the cluster only.
 #
-# It starts sealed after every restart and waits for a human: Linode has no KMS to auto-unseal
+# It starts sealed after every restart and waits for a human: there is no KMS to auto-unseal
 # with. The pod still reports Ready while sealed (the chart's probe accepts it), so Argo shows
 # the app Healthy; `vault status` is the real check.
 #

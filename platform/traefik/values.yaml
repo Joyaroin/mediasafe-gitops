@@ -18,9 +18,10 @@ gatewayClass:
 gateway:
   enabled: false
 
+# Cluster-internal: the only client is cloudflared (platform/cloudflared), so nothing is bound on
+# the node's network. Every request therefore arrives from cloudflared's pod address; the
+# visitor's IP travels in Cloudflare's CF-Connecting-IP header, which the app reads for Better
+# Auth's rate limiting.
 service:
   spec:
-    # Keep the visitor's real IP. With the default (Cluster) the request is source-NATed and the
-    # app sees an internal address — and Better Auth's rate limiting keys on the client IP. On
-    # one node, Local costs nothing: the only pod is always local.
-    externalTrafficPolicy: Local
+    type: ClusterIP

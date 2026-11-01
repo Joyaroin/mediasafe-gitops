@@ -1,5 +1,5 @@
-# The cluster's front door: the one public Gateway, its HTTP→HTTPS redirect, and the
-# Let's Encrypt issuers. Wave -1, after Traefik (the GatewayClass) and cert-manager (the
+# The cluster's front door: the one Gateway, the Let's Encrypt issuers, and their Cloudflare
+# token from Vault. Wave -1, after Traefik (the GatewayClass) and cert-manager (the
 # ClusterIssuer CRD and its webhook).
 apiVersion: argoproj.io/v1alpha1
 kind: Application

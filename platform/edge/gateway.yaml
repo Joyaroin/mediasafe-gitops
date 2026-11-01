@@ -1,9 +1,14 @@
-# The one public Gateway. Every hostname the cluster serves is a listener here, and each HTTPS
+# The one Gateway. Every hostname the cluster serves is a listener here, and each HTTPS
 # listener's certificate is issued by cert-manager from the annotation below: it creates one
 # Certificate per certificateRefs secret, for that listener's hostname.
 #
-# Ports are Traefik's entrypoint ports (8000/8443), not 80/443: Traefik matches listeners to
-# its entrypoints by port, and its Service maps 80→8000 and 443→8443.
+# Nothing reaches it from the internet directly. Traefik's Service is cluster-internal, and the
+# only way in is the Cloudflare Tunnel (platform/cloudflared), which connects to Traefik's HTTPS
+# port with each request's hostname as SNI. So there is no plain-HTTP listener: Cloudflare
+# redirects visitors to HTTPS at its edge, and certificates are proven over DNS, not port 80.
+#
+# Ports are Traefik's entrypoint ports (8443), not 443: Traefik matches listeners to its
+# entrypoints by port, and its Service maps 443→8443.
 #
 # Each hostname accepts routes from one namespace only, so no other namespace can claim it.
 apiVersion: gateway.networking.k8s.io/v1
@@ -16,16 +21,6 @@ metadata:
 spec:
   gatewayClassName: traefik
   listeners:
-    # Plain HTTP serves two things only: Let's Encrypt's HTTP-01 challenges, and the redirect to
-    # HTTPS for everything else (http-redirect.yaml). Both routes live in this namespace: the
-    # challenge routes are created next to the Certificates, which are here.
-    - name: http
-      port: 8000
-      protocol: HTTP
-      allowedRoutes:
-        namespaces:
-          from: Same
-
     - name: https-apex
       hostname: mediasafe.space
       port: 8443

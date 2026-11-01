@@ -1,0 +1,51 @@
+#!/bin/sh
+# Installs k3s on jonathan, the home-lab mini PC, with the settings the Linode node gets from
+# MediaSafe's infra/terraform/cloud-init.yaml.tftpl. Two differences, both for home:
+#   - the node is named for the machine, not the app, because more than MediaSafe will run here;
+#   - the API server's certificate also names the box's Tailscale address, so kubectl works from
+#     the Mac over the tailnet.
+# Run once per machine, on the node, as root:
+#   scp bootstrap/install-k3s jonathan: && ssh -t jonathan sudo sh install-k3s
+set -eu
+
+K3S_VERSION="v1.36.4+k3s1" # the same as Linode; upgrades are a change here
+
+# Security updates install themselves; reboots never happen on their own. A reboot seals Vault,
+# so it is done by hand, followed by an unseal.
+cat > /etc/apt/apt.conf.d/52homelab-no-reboot <<'EOF'
+Unattended-Upgrade::Automatic-Reboot "false";
+EOF
+
+# Vault's data directory. On Linode it is a separate block volume mounted here; at home it is a
+# directory on the SSD at the same path, so Vault's PersistentVolume keeps its path.
+mkdir -p /mnt/vault-data/raft
+
+mkdir -p /etc/rancher/k3s
+cat > /etc/rancher/k3s/config.yaml <<'EOF'
+node-name: jonathan
+# Traefik is installed and owned by Argo CD, not bundled with k3s.
+disable:
+  - traefik
+# Kubernetes Secrets are encrypted in k3s's datastore. Without this, every secret External
+# Secrets copies out of Vault sits in plaintext on this disk.
+secrets-encryption: true
+write-kubeconfig-mode: "0600"
+tls-san:
+  - jonathan
+  - jonathan.tailf69bc5.ts.net
+  - 100.120.217.8
+EOF
+
+# ufw is on. Pods must reach the API server and each other (k3s's pod and service networks), and
+# the API server is reachable from the tailnet only, never the home network.
+ufw allow from 10.42.0.0/16 to any comment 'k3s pods'
+ufw allow from 10.43.0.0/16 to any comment 'k3s services'
+ufw allow in on tailscale0 to any port 6443 proto tcp comment 'k3s API over Tailscale'
+
+curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="$K3S_VERSION" sh -
+
+# A copy of the admin kubeconfig for adham, so it can be fetched to the Mac without sudo.
+install -d -o adham -g adham -m 0700 /home/adham/.kube
+install -o adham -g adham -m 0600 /etc/rancher/k3s/k3s.yaml /home/adham/.kube/config
+
+k3s kubectl get nodes -o wide

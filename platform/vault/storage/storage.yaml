@@ -1,7 +1,7 @@
-# Vault's data lives on the Linode Block Storage volume, which cloud-init mounts at
-# /mnt/vault-data and which survives the VM being rebuilt. This PersistentVolume is the bridge:
-# a `local` volume at /mnt/vault-data/raft, pinned to the one node, reserved (claimRef) for the
-# exact claim the Vault chart creates, so nothing else can bind it.
+# Vault's data lives in /mnt/vault-data/raft on the home-lab node's SSD, created by the k3s
+# install script (the same path the Linode Block Storage volume was mounted at). This
+# PersistentVolume is the bridge: a `local` volume at that path, pinned to the one node,
+# reserved (claimRef) for the exact claim the Vault chart creates, so nothing else can bind it.
 #
 # Both carry Prune=false and Retain: no sync, deletion or uninstall may remove the volume or
 # what is on it. Removing them is a deliberate act done by hand.
@@ -40,4 +40,4 @@ spec:
             - key: kubernetes.io/hostname
               operator: In
               values:
-                - mediasafe
+                - jonathan

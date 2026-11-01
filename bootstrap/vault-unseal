@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Unseals Vault with the key in Bitwarden. Needed after every Vault restart: a VM reboot, a k3s
-# upgrade, a Vault upgrade Argo rolls out, or the pod being rescheduled. Linode has no KMS to
+# upgrade, a Vault upgrade Argo rolls out, or the pod being rescheduled. There is no KMS to
 # auto-unseal with.
 #
 #   export BW_SESSION="$(bw unlock --raw)"
-#   export KUBECONFIG=~/.kube/mediasafe.yaml
+#   export KUBECONFIG=~/.kube/homelab.yaml
 #   bootstrap/vault-unseal
 #
 # The key is sent to Vault's API on stdin, so it never appears in a command line — neither
