@@ -1,11 +1,11 @@
 #!/bin/sh
-# Installs k3s on jonathan, a VM on the home-lab Proxmox box, with the settings the Linode node
+# Installs k3s on hamon, the server VM on the Proxmox host jonathan, with the settings the Linode node
 # gets from MediaSafe's infra/terraform/cloud-init.yaml.tftpl. Two differences, both for home:
 #   - the node is named for the machine, not the app, because more than MediaSafe will run here;
 #   - the API server's certificate also names the node's Tailscale address, so kubectl works from
 #     the Mac over the tailnet.
 # Run once per machine, on the node, as root:
-#   scp bootstrap/install-k3s jonathan: && ssh -t jonathan sudo sh install-k3s
+#   scp bootstrap/install-k3s hamon: && ssh -t hamon sudo sh install-k3s
 set -eu
 
 K3S_VERSION="v1.36.4+k3s1" # the same as Linode; upgrades are a change here
@@ -28,7 +28,7 @@ mkdir -p /mnt/vault-data/raft
 
 mkdir -p /etc/rancher/k3s
 cat > /etc/rancher/k3s/config.yaml <<'EOF'
-node-name: jonathan
+node-name: hamon
 # Traefik is installed and owned by Argo CD, not bundled with k3s.
 disable:
   - traefik
@@ -37,8 +37,8 @@ disable:
 secrets-encryption: true
 write-kubeconfig-mode: "0600"
 tls-san:
-  - jonathan
-  - jonathan.tailf69bc5.ts.net
+  - hamon
+  - hamon.tailf69bc5.ts.net
   - 100.96.209.92
 EOF
 

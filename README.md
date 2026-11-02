@@ -1,7 +1,7 @@
 # mediasafe-gitops
 
 Everything that runs on the k3s cluster behind **[mediasafe.space](https://mediasafe.space)**,
-synced by Argo CD. The cluster is one VM (`jonathan`) on a Proxmox mini PC at home, reached from the
+synced by Argo CD. The cluster is one VM (`hamon`) on the Proxmox host `jonathan`, a mini PC at home, reached from the
 internet only through a Cloudflare Tunnel. The app's code, its CI, and the Terraform for Cloudflare
 live in **[Joyaroin/MediaSafe](https://github.com/Joyaroin/MediaSafe)**; this repository is the
 desired state of the cluster, and **a commit here is the only way the cluster changes**: Argo CD
@@ -43,7 +43,7 @@ commits), and a promote workflow copies it to `values-prod.yaml`.
 ## Bootstrapping a cluster
 
 Needs k3s on the node (`bootstrap/install-k3s`), the Bitwarden CLI unlocked, and the kubeconfig:
-`scp jonathan:.kube/config ~/.kube/homelab.yaml`, with `server:` changed to
+`scp hamon:.kube/config ~/.kube/homelab.yaml`, with `server:` changed to
 `https://100.96.209.92:6443`, the node's Tailscale address.
 
 ```sh

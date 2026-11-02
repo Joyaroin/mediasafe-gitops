@@ -32,8 +32,8 @@ bw unlock --check --session "$BW_SESSION" >/dev/null 2>&1 \
   || { echo "BW_SESSION is stale. Unlock again: export BW_SESSION=\"\$(bw unlock --raw)\"" >&2; exit 1; }
 bw sync --session "$BW_SESSION" >/dev/null
 command -v aws >/dev/null || { echo "Install the AWS CLI (it speaks R2's S3 API): brew install awscli" >&2; exit 1; }
-kubectl get node jonathan >/dev/null \
-  || { echo "kubectl does not reach the home-lab node (jonathan). export KUBECONFIG=~/.kube/homelab.yaml" >&2; exit 1; }
+kubectl get node hamon >/dev/null \
+  || { echo "kubectl does not reach the home-lab node (hamon). export KUBECONFIG=~/.kube/homelab.yaml" >&2; exit 1; }
 
 in_pod() { kubectl -n "$NS" exec -i "$POD" -c vault -- "$@"; }
 v() { in_pod vault "$@"; }
