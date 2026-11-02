@@ -16,6 +16,12 @@ cat > /etc/apt/apt.conf.d/52homelab-no-reboot <<'EOF'
 Unattended-Upgrade::Automatic-Reboot "false";
 EOF
 
+# cloud-init has done its job by now; from here the machine is configured by this script. Left on,
+# it treats any change to Proxmox's cloud-init drive as a new machine and regenerates the SSH host
+# keys. That drive changes without anyone touching it: Proxmox copies the host's DNS search domain
+# into it at each VM start, and on the host Tailscale rewrites that file during boot.
+touch /etc/cloud/cloud-init.disabled
+
 # Vault's data directory. On Linode it is a separate block volume mounted here; at home it is a
 # directory on the VM's disk at the same path, so Vault's PersistentVolume keeps its path.
 mkdir -p /mnt/vault-data/raft
