@@ -11,6 +11,10 @@ kind: Application
 metadata:
   name: vault
   namespace: argocd
+  annotations:
+    # Before wave -1, whose SecretStores and cert-manager's Cloudflare token read from Vault:
+    # left in wave 0, a fresh cluster waits for those to be healthy before installing Vault.
+    argocd.argoproj.io/sync-wave: "-2"
 spec:
   project: default
   sources:
