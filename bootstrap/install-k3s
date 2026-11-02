@@ -42,8 +42,26 @@ tls-san:
   - 100.96.209.92
 EOF
 
-# No host firewall, unlike Linode: the VM sits behind the home router, which forwards no ports,
-# and the API server and kubelet accept only client certificates.
+# ── Firewall ───────────────────────────────────────────────────────────────────────────────
+# The router forwards no ports, but every device on the home network could otherwise reach the
+# API server and kubelet. So the API is reachable over the tailnet only, and SSH from the LAN too,
+# so a broken Tailscale doesn't lock you out. Tailscale's own ts-input chain already accepts
+# everything on tailscale0; the tailscale0 rules here say the same thing in case it stops doing so.
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow from 192.168.2.0/24 to any port 22 proto tcp comment 'SSH from the home LAN'
+ufw allow in on tailscale0 to any port 22 proto tcp comment 'SSH over Tailscale'
+ufw allow in on tailscale0 to any port 6443 proto tcp comment 'k3s API over Tailscale'
+# Pods reach the API server and the kubelet on the node's address (CoreDNS, metrics-server).
+ufw allow from 10.42.0.0/16 to any comment 'k3s pods'
+ufw allow from 10.43.0.0/16 to any comment 'k3s services'
+# A second node joins over the LAN, not Tailscale. Give it a DHCP reservation and open these on
+# both nodes, for its address only, never the whole LAN: the API (agent to server), the kubelet
+# (server and metrics-server to each node), and flannel's VXLAN pod network (both ways).
+#   ufw allow from 192.168.2.N to any port 6443 proto tcp comment 'k3s API from agent'
+#   ufw allow from 192.168.2.N to any port 10250 proto tcp comment 'kubelet between nodes'
+#   ufw allow from 192.168.2.N to any port 8472 proto udp comment 'flannel VXLAN between nodes'
+ufw --force enable
 
 curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="$K3S_VERSION" sh -
 
