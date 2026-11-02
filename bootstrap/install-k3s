@@ -1,8 +1,8 @@
 #!/bin/sh
-# Installs k3s on jonathan, the home-lab mini PC, with the settings the Linode node gets from
-# MediaSafe's infra/terraform/cloud-init.yaml.tftpl. Two differences, both for home:
+# Installs k3s on jonathan, a VM on the home-lab Proxmox box, with the settings the Linode node
+# gets from MediaSafe's infra/terraform/cloud-init.yaml.tftpl. Two differences, both for home:
 #   - the node is named for the machine, not the app, because more than MediaSafe will run here;
-#   - the API server's certificate also names the box's Tailscale address, so kubectl works from
+#   - the API server's certificate also names the node's Tailscale address, so kubectl works from
 #     the Mac over the tailnet.
 # Run once per machine, on the node, as root:
 #   scp bootstrap/install-k3s jonathan: && ssh -t jonathan sudo sh install-k3s
@@ -17,7 +17,7 @@ Unattended-Upgrade::Automatic-Reboot "false";
 EOF
 
 # Vault's data directory. On Linode it is a separate block volume mounted here; at home it is a
-# directory on the SSD at the same path, so Vault's PersistentVolume keeps its path.
+# directory on the VM's disk at the same path, so Vault's PersistentVolume keeps its path.
 mkdir -p /mnt/vault-data/raft
 
 mkdir -p /etc/rancher/k3s
@@ -33,14 +33,11 @@ write-kubeconfig-mode: "0600"
 tls-san:
   - jonathan
   - jonathan.tailf69bc5.ts.net
-  - 100.120.217.8
+  - 100.96.209.92
 EOF
 
-# ufw is on. Pods must reach the API server and each other (k3s's pod and service networks), and
-# the API server is reachable from the tailnet only, never the home network.
-ufw allow from 10.42.0.0/16 to any comment 'k3s pods'
-ufw allow from 10.43.0.0/16 to any comment 'k3s services'
-ufw allow in on tailscale0 to any port 6443 proto tcp comment 'k3s API over Tailscale'
+# No host firewall, unlike Linode: the VM sits behind the home router, which forwards no ports,
+# and the API server and kubelet accept only client certificates.
 
 curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="$K3S_VERSION" sh -
 

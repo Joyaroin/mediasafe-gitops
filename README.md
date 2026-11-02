@@ -1,12 +1,12 @@
 # mediasafe-gitops
 
 Everything that runs on the k3s cluster behind **[mediasafe.space](https://mediasafe.space)**,
-synced by Argo CD. The cluster is one mini PC at home (`jonathan`), reached from the internet only
-through a Cloudflare Tunnel. The app's code, its CI, and the Terraform for Cloudflare live in
-**[Joyaroin/MediaSafe](https://github.com/Joyaroin/MediaSafe)**; this repository is the desired
-state of the cluster, and **a commit here is the only way the cluster changes**: Argo CD syncs
-automatically, prunes what is removed, and reverts hand edits. The decision record is
-[ADR 0001 in the app repo](https://github.com/Joyaroin/MediaSafe/blob/main/docs/adr/0001-deploy-to-k3s-on-linode-with-gitops.md).
+synced by Argo CD. The cluster is one VM (`jonathan`) on a Proxmox mini PC at home, reached from the
+internet only through a Cloudflare Tunnel. The app's code, its CI, and the Terraform for Cloudflare
+live in **[Joyaroin/MediaSafe](https://github.com/Joyaroin/MediaSafe)**; this repository is the
+desired state of the cluster, and **a commit here is the only way the cluster changes**: Argo CD
+syncs automatically, prunes what is removed, and reverts hand edits. The decision record
+is [ADR 0001 in the app repo](https://github.com/Joyaroin/MediaSafe/blob/main/docs/adr/0001-deploy-to-k3s-on-linode-with-gitops.md).
 
 ## What runs on the cluster
 
@@ -44,7 +44,7 @@ commits), and a promote workflow copies it to `values-prod.yaml`.
 
 Needs k3s on the node (`bootstrap/install-k3s`), the Bitwarden CLI unlocked, and the kubeconfig:
 `scp jonathan:.kube/config ~/.kube/homelab.yaml`, with `server:` changed to
-`https://100.120.217.8:6443`, the node's Tailscale address.
+`https://100.96.209.92:6443`, the node's Tailscale address.
 
 ```sh
 export BW_SESSION="$(bw unlock --raw)"
