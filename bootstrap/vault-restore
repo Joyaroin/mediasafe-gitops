@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Restores Vault from the newest snapshot in R2: the move from Linode, and the way back after
+# losing the node's disk. vault-restore-drill proves the same steps against a throwaway Vault;
+# this runs them against the real one, so it refuses unless Vault is fresh — running, and never
+# initialised. Never run bootstrap/vault-init in its place: that makes a new, empty Vault.
+#
+#   export BW_SESSION="$(bw unlock --raw)"
+#   export KUBECONFIG=~/.kube/homelab.yaml
+#   bootstrap/vault-restore
+#
+#   1. downloads the newest snapshot from R2 to a private temp file on this machine
+#   2. copies it into the Vault pod
+#   3. initialises Vault with a throwaway key and token, needed only to restore over
+#   4. `raft snapshot restore -force`: Vault now holds the snapshot's data and reseals
+#   5. unseals it with the ORIGINAL unseal key from Bitwarden
+#
+# The throwaway key and token live only in this script's memory and are useless after step 4,
+# which replaces them. The R2 key reaches aws only through its environment; the unseal key
+# travels on stdin only. SNAPSHOT=vault-<time>.snap restores that one instead of the newest;
+# VAULT_NS and VAULT_POD aim it at a rehearsal Vault.
+set -euo pipefail
+
+NS="${VAULT_NS:-vault}"
+POD="${VAULT_POD:-vault-0}"
+R2_ITEM=mediasafe/r2-vault-snapshots
+UNSEAL_ITEM=mediasafe/vault-unseal-key
+R2_ENDPOINT=https://e611254754d8c1922b8ead788aab6f40.r2.cloudflarestorage.com
+R2_BUCKET=mediasafe-vault-snapshots
+
+: "${BW_SESSION:?Unlock Bitwarden first: export BW_SESSION=\"\$(bw unlock --raw)\"}"
+bw unlock --check --session "$BW_SESSION" >/dev/null 2>&1 \
+  || { echo "BW_SESSION is stale. Unlock again: export BW_SESSION=\"\$(bw unlock --raw)\"" >&2; exit 1; }
+bw sync --session "$BW_SESSION" >/dev/null
+command -v aws >/dev/null || { echo "Install the AWS CLI (it speaks R2's S3 API): brew install awscli" >&2; exit 1; }
+kubectl get node jonathan >/dev/null \
+  || { echo "kubectl does not reach the home-lab node (jonathan). export KUBECONFIG=~/.kube/homelab.yaml" >&2; exit 1; }
+
+in_pod() { kubectl -n "$NS" exec -i "$POD" -c vault -- "$@"; }
+v() { in_pod vault "$@"; }
+api() { # path — POSTs stdin to Vault's API inside the pod
+  in_pod sh -c "wget -qO- --header 'Content-Type: application/json' --post-file /dev/stdin http://127.0.0.1:8200/v1/$1"
+}
+status() { v status -format=json 2>/dev/null || true; } # exits 2 while sealed
+wait_sealed() { # true|false
+  for _ in $(seq 30); do [[ "$(status | jq -r .sealed)" == "$1" ]] && return 0; sleep 2; done
+  echo "Timed out waiting for sealed=$1" >&2; return 1
+}
+
+initialized="$(status | jq -r .initialized)"
+if [[ "$initialized" != "false" ]]; then
+  echo "Vault ($NS/$POD) is already initialised, or unreachable (initialized=$initialized)." >&2
+  echo "Restoring would replace its data, so this only runs on a fresh Vault. Nothing done." >&2
+  exit 1
+fi
+
+snap="$(mktemp)" # 0600
+cleanup() {
+  rm -f "$snap"
+  in_pod rm -f /tmp/restore.snap 2>/dev/null || true
+}
+trap cleanup EXIT
+
+echo "1. Downloading the snapshot from R2"
+name="$(
+  AWS_ACCESS_KEY_ID="$(bw get username "$R2_ITEM" --session "$BW_SESSION")" \
+  AWS_SECRET_ACCESS_KEY="$(bw get password "$R2_ITEM" --session "$BW_SESSION")" \
+  AWS_DEFAULT_REGION=auto \
+  AWS_REQUEST_CHECKSUM_CALCULATION=when_required AWS_RESPONSE_CHECKSUM_VALIDATION=when_required \
+  sh -c '
+    set -eu
+    name="${SNAPSHOT:-$(aws --endpoint-url "$0" s3 ls "s3://$1/" | awk "{print \$4}" | grep "^vault-.*\.snap$" | sort | tail -n 1)}"
+    [ -n "$name" ] || { echo "No snapshots in $1." >&2; exit 1; }
+    aws --endpoint-url "$0" s3 cp --only-show-errors "s3://$1/$name" "$2"
+    echo "$name"
+  ' "$R2_ENDPOINT" "$R2_BUCKET" "$snap"
+)"
+size="$(wc -c <"$snap" | tr -d ' ')"
+echo "   $name ($size bytes)"
+
+echo "2. Copying it into $NS/$POD"
+in_pod sh -c 'cat > /tmp/restore.snap' <"$snap"
+[[ "$(in_pod sh -c 'wc -c < /tmp/restore.snap' | tr -d ' ')" == "$size" ]] \
+  || { echo "The copy in the pod is not $size bytes." >&2; exit 1; }
+
+echo "3. Initialising with a throwaway key"
+init="$(v operator init -key-shares=1 -key-threshold=1 -format=json)"
+jq -c '{key: .unseal_keys_b64[0]}' <<<"$init" | api sys/unseal >/dev/null
+wait_sealed false
+
+echo "4. Restoring the snapshot over it"
+in_pod env VAULT_TOKEN="$(jq -r .root_token <<<"$init")" \
+  vault operator raft snapshot restore -force /tmp/restore.snap
+unset init
+wait_sealed true
+
+echo "5. Unsealing with the original unseal key"
+bw get password "$UNSEAL_ITEM" --session "$BW_SESSION" | jq -Rc '{key: .}' | api sys/unseal >/dev/null
+wait_sealed false
+
+echo "Restored $name into $NS/$POD and unsealed it. Make External Secrets fetch now, not within the hour:"
+echo "  kubectl annotate externalsecrets -A --all force-sync=\"\$(date +%s)\" --overwrite"
