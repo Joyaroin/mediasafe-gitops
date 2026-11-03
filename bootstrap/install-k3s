@@ -55,12 +55,13 @@ ufw allow in on tailscale0 to any port 6443 proto tcp comment 'k3s API over Tail
 # Pods reach the API server and the kubelet on the node's address (CoreDNS, metrics-server).
 ufw allow from 10.42.0.0/16 to any comment 'k3s pods'
 ufw allow from 10.43.0.0/16 to any comment 'k3s services'
-# A second node joins over the LAN, not Tailscale. Give it a DHCP reservation and open these on
-# both nodes, for its address only, never the whole LAN: the API (agent to server), the kubelet
-# (server and metrics-server to each node), and flannel's VXLAN pod network (both ways).
-#   ufw allow from 192.168.2.N to any port 6443 proto tcp comment 'k3s API from agent'
-#   ufw allow from 192.168.2.N to any port 10250 proto tcp comment 'kubelet between nodes'
-#   ufw allow from 192.168.2.N to any port 8472 proto udp comment 'flannel VXLAN between nodes'
+# The agent, hermit, joins over the LAN, not Tailscale, from its DHCP reservation. These are open
+# for its address only, never the whole LAN: the API (agent to server), the kubelet (server and
+# metrics-server to each node), and flannel's VXLAN pod network (both ways). install-k3s-agent
+# opens the same on hermit for this node's address.
+ufw allow from 192.168.2.211 to any port 6443 proto tcp comment 'k3s API from hermit'
+ufw allow from 192.168.2.211 to any port 10250 proto tcp comment 'kubelet from hermit'
+ufw allow from 192.168.2.211 to any port 8472 proto udp comment 'flannel VXLAN from hermit'
 ufw --force enable
 
 curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="$K3S_VERSION" sh -
