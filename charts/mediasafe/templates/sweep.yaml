@@ -33,6 +33,7 @@ spec:
             app.kubernetes.io/name: nightly-sweep
             {{- include "mediasafe.labels" . | nindent 12 }}
         spec:
+          {{- include "mediasafe.placement" . | nindent 10 }}
           restartPolicy: Never
           automountServiceAccountToken: false
           securityContext:

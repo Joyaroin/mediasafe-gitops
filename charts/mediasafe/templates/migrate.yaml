@@ -29,6 +29,7 @@ spec:
         app.kubernetes.io/name: mediasafe-migrate
         {{- include "mediasafe.labels" . | nindent 8 }}
     spec:
+      {{- include "mediasafe.placement" . | nindent 6 }}
       restartPolicy: Never
       automountServiceAccountToken: false
       imagePullSecrets:

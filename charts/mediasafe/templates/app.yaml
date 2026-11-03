@@ -33,6 +33,7 @@ spec:
         app.kubernetes.io/name: mediasafe
         {{- include "mediasafe.labels" . | nindent 8 }}
     spec:
+      {{- include "mediasafe.placement" . | nindent 6 }}
       automountServiceAccountToken: false
       imagePullSecrets:
         - name: ghcr-pull

@@ -2,6 +2,9 @@
 environment: staging
 hostname: staging.mediasafe.space
 gatewayListener: https-staging
+# On hermit, never with prod. See values-prod.yaml.
+nodeSelector:
+  kubernetes.io/hostname: hermit
 image:
   tag: 3a4772797b824bb3a6a9d57e22e546eeebc83962
 sweep:
