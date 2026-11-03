@@ -1,0 +1,158 @@
+#!/bin/sh
+# Sets up harvest, the VM on the Proxmox host joseph that runs Forgejo's Actions jobs. It is not a
+# k3s node: CI runs code from repositories, so it gets its own 4 GB and never shares memory or a
+# pod network with MediaSafe. forgejo-runner polls Forgejo over the tailnet and runs each job in a
+# fresh Docker container that is deleted afterwards.
+#
+# The VM, made on joseph from the checked Ubuntu 26.04 cloud image the same way as hermit:
+#   qm create 203 --name harvest --memory 4096 --balloon 0 --cores 4 --cpu host --ostype l26 \
+#     --net0 virtio,bridge=vmbr0 --scsihw virtio-scsi-single --agent enabled=1 --onboot 1 \
+#     --serial0 socket --vga serial0 \
+#     --scsi0 local-lvm:0,import-from=/var/lib/vz/import/ubuntu-26.04-server-cloudimg-amd64.img,discard=on,iothread=1,ssd=1 \
+#     --ide2 local-lvm:cloudinit --boot order=scsi0 --ciuser adham --sshkeys <key> \
+#     --ipconfig0 ip=dhcp --nameserver 192.168.2.1 --searchdomain tailf69bc5.ts.net
+#   qm resize 203 scsi0 60G && qm start 203
+#
+# Then, from the Mac (harvest has no tailnet name until the last step, so go through joseph):
+#   scp -J joseph bootstrap/install-harvest adham@<harvest's LAN IP>:
+#   ssh -J joseph adham@<harvest's LAN IP> sudo sh install-harvest
+#   ssh -J joseph adham@<harvest's LAN IP> sudo tailscale up --hostname=harvest --accept-dns=true
+# Open the login link it prints, then disable key expiry for harvest in the admin console.
+# Finally bootstrap/register-runner. Safe to run again: every step replaces what it writes.
+set -eu
+
+RUNNER_VERSION="13.2.1"
+# Forgejo's release-signing key (https://forgejo.org/docs/latest/admin/installation/binary/).
+FORGEJO_SIGNING_KEY="EB114F5E6C0DC2BCDD183550A4B61A2DC5923710"
+
+# As on hamon and hermit: left on, cloud-init regenerates the SSH host keys whenever Proxmox
+# rewrites the cloud-init drive.
+touch /etc/cloud/cloud-init.disabled
+
+# ── Packages ─────────────────────────────────────────────────────────────────────────────────
+# Docker from Ubuntu's archive. Tailscale from its own signed apt repository, never `curl | sh`.
+codename="$(lsb_release -cs)"
+curl -fsSL -o /usr/share/keyrings/tailscale-archive-keyring.gpg \
+  "https://pkgs.tailscale.com/stable/ubuntu/${codename}.noarmor.gpg"
+curl -fsSL -o /etc/apt/sources.list.d/tailscale.list \
+  "https://pkgs.tailscale.com/stable/ubuntu/${codename}.tailscale-keyring.list"
+apt-get update -qq
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-guest-agent docker.io ufw tailscale gnupg
+systemctl enable --now qemu-guest-agent docker tailscaled
+
+# ── Firewall for the VM ──────────────────────────────────────────────────────────────────────
+# Nothing listens here but SSH. The runner only makes outbound connections.
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow from 192.168.2.0/24 to any port 22 proto tcp comment 'SSH from the home LAN'
+ufw allow in on tailscale0 to any port 22 proto tcp comment 'SSH over Tailscale'
+ufw --force enable
+
+# ── Docker ───────────────────────────────────────────────────────────────────────────────────
+# Containers would copy the host's resolvers, the router first, and the router cannot resolve
+# forgejo.tailf69bc5.ts.net. Tailscale's resolver answers tailnet names and forwards the rest.
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json <<'EOF'
+{
+  "dns": ["100.100.100.100"],
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" }
+}
+EOF
+systemctl restart docker
+
+# ── What job containers may reach ────────────────────────────────────────────────────────────
+# Docker sends every container packet that leaves its bridge through the DOCKER-USER chain. A job
+# gets DNS, Forgejo and the internet; not the home LAN (Proxmox, the router, Pi-hole) and not the
+# rest of the tailnet (the k3s API on hamon, the Proxmox hosts, the Mac). The runner itself runs
+# on the host and is not affected.
+cat > /usr/local/sbin/ci-egress-guard <<'EOF'
+#!/usr/bin/env bash
+# Rebuilds the DOCKER-USER chain from scratch. See bootstrap/install-harvest in mediasafe-gitops.
+set -euo pipefail
+
+forgejo=$(getent ahostsv4 forgejo.tailf69bc5.ts.net | awk 'NR==1{print $1}' || true)
+
+iptables -F DOCKER-USER
+iptables -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+iptables -A DOCKER-USER -d 100.100.100.100 -p udp --dport 53 -j RETURN
+iptables -A DOCKER-USER -d 100.100.100.100 -p tcp --dport 53 -j RETURN
+if [[ -n "$forgejo" ]]; then
+  iptables -A DOCKER-USER -d "$forgejo" -p tcp --dport 443 -j RETURN
+else
+  echo "forgejo.tailf69bc5.ts.net does not resolve yet: jobs cannot reach Forgejo until this reruns" >&2
+fi
+for net in 192.168.0.0/16 10.0.0.0/8 172.16.0.0/12 100.64.0.0/10 169.254.0.0/16; do
+  iptables -A DOCKER-USER -d "$net" -j DROP
+done
+iptables -A DOCKER-USER -j RETURN
+EOF
+chmod 0755 /usr/local/sbin/ci-egress-guard
+
+cat > /etc/systemd/system/ci-egress-guard.service <<'EOF'
+[Unit]
+Description=Limit what CI job containers can reach
+After=docker.service tailscaled.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ci-egress-guard
+
+[Install]
+WantedBy=multi-user.target docker.service
+EOF
+
+# ── forgejo-runner ───────────────────────────────────────────────────────────────────────────
+# A single binary, checked against its published SHA-256 and Forgejo's signature.
+tmp="$(mktemp -d)"
+base="https://code.forgejo.org/forgejo/runner/releases/download/v${RUNNER_VERSION}"
+bin="forgejo-runner-${RUNNER_VERSION}-linux-amd64"
+curl -fsSL -o "$tmp/$bin" "$base/$bin"
+curl -fsSL -o "$tmp/$bin.sha256" "$base/$bin.sha256"
+curl -fsSL -o "$tmp/$bin.asc" "$base/$bin.asc"
+(cd "$tmp" && echo "$(cut -d' ' -f1 "$bin.sha256")  $bin" | sha256sum -c -)
+GNUPGHOME="$tmp/gnupg"; export GNUPGHOME; mkdir -m 0700 "$GNUPGHOME"
+gpg --batch --quiet --keyserver hkps://keys.openpgp.org --recv-keys "$FORGEJO_SIGNING_KEY"
+gpg --batch --verify "$tmp/$bin.asc" "$tmp/$bin"
+install -m 0755 "$tmp/$bin" /usr/local/bin/forgejo-runner
+rm -rf "$tmp"; unset GNUPGHOME
+
+# Its own user. Membership of docker is root-equivalent on this VM: the runner is trusted, the
+# jobs it starts are what the egress guard contains.
+id runner >/dev/null 2>&1 || useradd --system --create-home --home-dir /var/lib/forgejo-runner \
+  --shell /usr/sbin/nologin --groups docker runner
+
+mkdir -p /etc/forgejo-runner
+forgejo-runner generate-config > /etc/forgejo-runner/config.yml
+# The cache server listens on the host, and ufw drops containers' connections to the host. No job
+# here needs actions/cache; turn it off rather than have it time out.
+sed -i '/^cache:/,/^[a-z]/ s/^  enabled: true/  enabled: false/' /etc/forgejo-runner/config.yml
+
+cat > /etc/systemd/system/forgejo-runner.service <<'EOF'
+[Unit]
+Description=Forgejo Actions runner
+After=docker.service ci-egress-guard.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+# Written by bootstrap/register-runner. Until then there is nothing to run as.
+ConditionPathExists=/var/lib/forgejo-runner/.runner
+
+[Service]
+User=runner
+WorkingDirectory=/var/lib/forgejo-runner
+ExecStart=/usr/local/bin/forgejo-runner daemon --config /etc/forgejo-runner/config.yml
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now ci-egress-guard
+systemctl enable forgejo-runner
+systemctl is-active docker ci-egress-guard
