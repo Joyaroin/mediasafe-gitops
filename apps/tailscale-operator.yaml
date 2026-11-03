@@ -1,0 +1,39 @@
+# The Tailscale Kubernetes operator: puts things on the tailnet, never on the internet. An
+# Ingress with ingressClassName tailscale makes the operator start a small proxy pod that joins
+# the tailnet as its own device, named after the Ingress's tls host, with an HTTPS certificate
+# for <name>.tailf69bc5.ts.net. Only tailnet devices can reach it.
+#
+# It creates those devices with an OAuth client from the Tailscale admin console, which comes
+# from Vault (platform/tailscale-operator/).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: tailscale-operator
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://pkgs.tailscale.com/helmcharts
+      chart: tailscale-operator
+      targetRevision: 1.104.4
+      helm:
+        releaseName: tailscale-operator
+        valueFiles:
+          - $values/platform/tailscale-operator/values.yaml
+    - repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
+      targetRevision: main
+      ref: values
+    # The OAuth client, from Vault.
+    - repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
+      targetRevision: main
+      path: platform/tailscale-operator/secrets
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: tailscale
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

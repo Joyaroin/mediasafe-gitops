@@ -1,0 +1,50 @@
+# Forgejo for one person: SQLite on a local volume, no Redis, no Postgres, no public route.
+# Chart reference: https://code.forgejo.org/forgejo-helm/forgejo-helm/src/tag/v17.3.2
+
+# The volume is local-path, a directory on one node's disk, so the pod must stay on that node.
+# hermit has the spare memory; hamon carries the control plane and Vault.
+nodeSelector:
+  kubernetes.io/hostname: hermit
+
+persistence:
+  enabled: true
+  storageClass: local-path
+  size: 10Gi
+
+resources:
+  requests: { cpu: 50m, memory: 192Mi }
+  limits: { memory: 768Mi }
+
+gitea:
+  # Created on first start and kept in step with Vault after that (passwordMode keepUpdated).
+  # Change the password with `vault kv put` and restart the pod; never in the UI.
+  admin:
+    existingSecret: forgejo-admin
+    email: adhamseddik546@gmail.com
+    passwordMode: keepUpdated
+
+  config:
+    APP_NAME: Forgejo
+    server:
+      DOMAIN: forgejo.tailf69bc5.ts.net
+      ROOT_URL: https://forgejo.tailf69bc5.ts.net/
+      # Clone over HTTPS with a token. SSH would need a second tailnet device for port 22.
+      DISABLE_SSH: true
+      START_SSH_SERVER: false
+    database:
+      DB_TYPE: sqlite3
+    service:
+      # One account, the admin. Nobody can sign up, and nothing is visible signed out.
+      DISABLE_REGISTRATION: true
+      REQUIRE_SIGNIN_VIEW: true
+    repository:
+      DEFAULT_PRIVATE: private
+    mirror:
+      # Each pull mirror fetches from GitHub this often. Per-repo, and changeable in its settings.
+      DEFAULT_INTERVAL: 8h
+    actions:
+      ENABLED: true
+
+# The chart's `helm test` pod. Argo CD never runs helm test.
+test:
+  enabled: false

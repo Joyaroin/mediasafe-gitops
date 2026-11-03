@@ -19,6 +19,8 @@ is [ADR 0001 in the app repo](https://github.com/Joyaroin/MediaSafe/blob/main/do
 | **Vault** | Every secret, on the node's disk, snapshotted nightly to Cloudflare R2 |
 | **External Secrets** | Copies each namespace's secrets out of Vault into Kubernetes Secrets |
 | **MediaSafe** ×2 | `mediasafe-staging` and `mediasafe-prod` from one Helm chart: the Next.js app, a Valkey cache, a migration Job that runs before each rollout, and a nightly CronJob |
+| **Tailscale operator** | Puts things on the tailnet instead of the internet: an Ingress with class `tailscale` becomes its own tailnet device with HTTPS |
+| **Forgejo** | A git server at https://forgejo.tailf69bc5.ts.net, tailnet only: pull mirrors of the GitHub repos, and the scheduled Renovate job. Its CI runs on the VM `harvest` on `joseph`, not in this cluster. The volume is not backed up yet: mirrors refill from GitHub, anything home-only does not |
 
 Deploys are commits too: CI in the app repo writes a new image tag to
 `charts/mediasafe/values-staging.yaml` on every merge (the `Deploy MediaSafe … to staging`
@@ -33,6 +35,8 @@ commits), and a promote workflow copies it to `values-prod.yaml`.
 | `platform/<name>/` | Values for the platform charts, plus anything that runs beside them (`platform/vault/snapshots/`: the nightly snapshot to R2) |
 | `charts/mediasafe/` | The app: Deployment, Service, route, migration Job, nightly sweep, Valkey, and its Secrets from Vault. `values-<env>.yaml` per environment |
 | `platform/edge/` | The one Gateway, and the Let's Encrypt issuers with their Cloudflare token |
+| `platform/tailscale-operator/` | The operator's values, and its OAuth client from Vault |
+| `platform/forgejo/` | Forgejo's values, its admin login from Vault, and its tailnet Ingress |
 | `bootstrap/install-k3s` | Installs k3s on the node, with the settings the rest assumes. Run once per machine |
 | `bootstrap/install` | Installs Argo CD on a fresh cluster. Run once per cluster |
 | `bootstrap/create-deploy-key` | Creates Argo CD's read-only deploy key. Run once, ever |
