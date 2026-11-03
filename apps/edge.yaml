@@ -11,7 +11,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: git@github.com:Joyaroin/mediasafe-gitops.git
+    repoURL: https://github.com/Joyaroin/morioh-cho-gitops.git
     targetRevision: main
     path: platform/edge
   destination:

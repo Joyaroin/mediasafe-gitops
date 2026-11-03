@@ -1,8 +1,10 @@
-# mediasafe-gitops
+# morioh-cho-gitops
 
-Everything that runs on the k3s cluster behind **[mediasafe.space](https://mediasafe.space)**,
-synced by Argo CD. The cluster is one VM (`hamon`) on the Proxmox host `jonathan`, a mini PC at home, reached from the
-internet only through a Cloudflare Tunnel. The app's code, its CI, and the Terraform for Cloudflare
+Everything that runs on the home k3s cluster, synced by Argo CD: **[mediasafe.space](https://mediasafe.space)**
+first, and the tools beside it. The cluster is two VMs, `hamon` on the Proxmox host `jonathan` and
+`hermit` on `joseph`, mini PCs at home, reached from the internet only through a Cloudflare Tunnel.
+(Morioh-cho is the town everything here lives in; this repository was `mediasafe-gitops` until it
+ran more than MediaSafe.) The app's code, its CI, and the Terraform for Cloudflare
 live in **[Joyaroin/MediaSafe](https://github.com/Joyaroin/MediaSafe)**; this repository is the
 desired state of the cluster, and **a commit here is the only way the cluster changes**: Argo CD
 syncs automatically, prunes what is removed, and reverts hand edits. The decision record
@@ -39,27 +41,26 @@ commits), and a promote workflow copies it to `values-prod.yaml`.
 | `platform/forgejo/` | Forgejo's values, its admin login from Vault, and its tailnet Ingress |
 | `bootstrap/install-k3s` | Installs k3s on the node, with the settings the rest assumes. Run once per machine |
 | `bootstrap/install` | Installs Argo CD on a fresh cluster. Run once per cluster |
-| `bootstrap/create-deploy-key` | Creates Argo CD's read-only deploy key. Run once, ever |
 | `bootstrap/vault-init` | Initialises Vault and stores the unseal key and root token in Bitwarden. Once per Vault volume |
 | `bootstrap/vault-unseal` | Unseals Vault with the key from Bitwarden. **After every Vault restart** |
 | `bootstrap/vault-restore-drill` | Restores the newest R2 snapshot into a throwaway Vault and reads a canary back. The restore procedure, and its test |
 
 ## Bootstrapping a cluster
 
-Needs k3s on the node (`bootstrap/install-k3s`), the Bitwarden CLI unlocked, and the kubeconfig:
+Needs k3s on the node (`bootstrap/install-k3s`) and the kubeconfig:
 `scp hamon:.kube/config ~/.kube/homelab.yaml`, with `server:` changed to
 `https://100.96.209.92:6443`, the node's Tailscale address.
 
 ```sh
-export BW_SESSION="$(bw unlock --raw)"
 export KUBECONFIG=~/.kube/homelab.yaml
-
-bootstrap/create-deploy-key   # first time only
 bootstrap/install
 ```
 
+Argo CD reads this repository over public HTTPS with no credential, so there is no deploy key to
+restore.
+
 After reinstalling k3s on the same disk, run `bootstrap/install`, wait for Argo CD to bring Vault
-up, then `bootstrap/vault-unseal`: the deploy key and the unseal key are already in Bitwarden, and
+up, then `bootstrap/vault-unseal`: the unseal key is already in Bitwarden, and
 Vault's data is still in `/mnt/vault-data`. If the disk itself is lost, Vault starts empty:
 restore it from the newest R2 snapshot, by the procedure in `bootstrap/vault-restore-drill`.
 
