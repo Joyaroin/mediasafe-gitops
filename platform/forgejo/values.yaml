@@ -42,8 +42,9 @@ gitea:
     mirror:
       # Each pull mirror fetches from GitHub this often. Per-repo, and changeable in its settings.
       DEFAULT_INTERVAL: 8h
+    # Off: nothing runs here. CI at home is the GitHub runner on echoes.
     actions:
-      ENABLED: true
+      ENABLED: false
 
 # The chart's `helm test` pod. Argo CD never runs helm test.
 test:

@@ -9,7 +9,7 @@
 # hostile job, which could get around it and read the token in /etc/github-runner. So: only code
 # you trust, and keep that token to this one repository.
 #
-# The VM, made on joseph from the checked Ubuntu 26.04 cloud image, the same way as harvest:
+# The VM, made on joseph from the checked Ubuntu 26.04 cloud image, the same way as hermit:
 #   qm create 204 --name echoes --memory 3072 --balloon 0 --cores 4 --cpu host --ostype l26 \
 #     --net0 virtio,bridge=vmbr0 --scsihw virtio-scsi-single --agent enabled=1 --onboot 1 \
 #     --serial0 socket --vga serial0 \

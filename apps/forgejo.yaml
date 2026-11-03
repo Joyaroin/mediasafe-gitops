@@ -1,9 +1,6 @@
 # Forgejo, a git server for the home lab: pull mirrors of the GitHub repos (a second copy that
-# GitHub going away cannot take), any repo that only lives at home, and the scheduled Renovate
-# job. Reached only over the tailnet, at https://forgejo.tailf69bc5.ts.net.
-#
-# Its Actions jobs do not run here. They run on the runner VM `harvest` on joseph, which polls
-# Forgejo for work, so CI never competes with MediaSafe for this cluster's memory.
+# GitHub going away cannot take), and any repo that only lives at home. Reached only over the
+# tailnet, at https://forgejo.tailf69bc5.ts.net.
 #
 # No resources finalizer: deleting this Application must not delete the repositories' volume.
 apiVersion: argoproj.io/v1alpha1
