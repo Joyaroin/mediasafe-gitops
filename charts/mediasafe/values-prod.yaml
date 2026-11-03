@@ -8,6 +8,12 @@ image:
 # Two, so a rolling deploy or one pod's crash leaves the site up. They share one Valkey, which
 # is what keeps a write on one replica from leaving the other's cache stale.
 replicas: 2
+# Prod runs on hamon only (jonathan, the HP), staging on hermit only (joseph, the GEEKOM), so a
+# staging deploy or a side project on hermit can never take prod's memory. The cost, accepted:
+# no second machine for prod. If jonathan is down, so is the site, as are the control plane and
+# Vault, which already live there.
+nodeSelector:
+  kubernetes.io/hostname: hamon
 sweep:
   schedule: "0 9 * * *"
   # Runs here since the cutover (ADR 0001, stage 9). Vercel Cron, which ran it before, is

@@ -10,6 +10,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $_ := required "image.tag is required (the commit SHA)" .Values.image.tag -}}
 {{- end }}
 
+{{/* Which node this environment's pods run on: every pod in the chart, so the app, its Valkey,
+the migration and the sweep stay together. Empty means anywhere. */}}
+{{- define "mediasafe.placement" -}}
+{{- with .Values.nodeSelector -}}
+nodeSelector: {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
+
 {{/* Every address but private, shared and link-local ranges: the cluster and Linode's metadata
 service stay out of reach. */}}
 {{- define "mediasafe.internet" -}}

@@ -1,0 +1,70 @@
+# Default deny in this namespace, then exactly the traffic Forgejo needs. k3s enforces these with
+# its embedded kube-router controller.
+#
+#   Forgejo's tailnet proxy (namespace tailscale) ──3000──▶ Forgejo
+#   Forgejo ──443──▶ internet (GitHub, for the pull mirrors)
+#   everyone ──53───▶ CoreDNS
+#
+# Nothing else in the cluster can reach Forgejo, and Forgejo can reach nothing in the cluster:
+# not MediaSafe, Argo CD, Traefik, Vault or the webhooks. "Internet" is every address except
+# private, shared and link-local ranges, as in charts/mediasafe; that also keeps the home LAN
+# and the tailnet out of reach. The runner on harvest comes in through the tailnet proxy like
+# any other client.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: forgejo
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: forgejo
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: forgejo
+  namespace: forgejo
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: forgejo
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # Only the proxy the Tailscale operator runs for this namespace's Ingress.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tailscale
+          podSelector:
+            matchLabels:
+              tailscale.com/parent-resource: forgejo
+              tailscale.com/parent-resource-ns: forgejo
+      ports:
+        - { protocol: TCP, port: 3000 }
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: [10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 169.254.0.0/16]
+      ports:
+        - { protocol: TCP, port: 443 }

@@ -18,7 +18,7 @@ is [ADR 0001 in the app repo](https://github.com/Joyaroin/MediaSafe/blob/main/do
 | **cert-manager** | Let's Encrypt certificates for every listener, issued through DNS-01 on Cloudflare |
 | **Vault** | Every secret, on the node's disk, snapshotted nightly to Cloudflare R2 |
 | **External Secrets** | Copies each namespace's secrets out of Vault into Kubernetes Secrets |
-| **MediaSafe** ×2 | `mediasafe-staging` and `mediasafe-prod` from one Helm chart: the Next.js app, a Valkey cache, a migration Job that runs before each rollout, and a nightly CronJob |
+| **MediaSafe** ×2 | `mediasafe-staging` and `mediasafe-prod` from one Helm chart: the Next.js app, a Valkey cache, a migration Job that runs before each rollout, and a nightly CronJob. Prod runs only on `hamon`, staging only on `hermit` (`nodeSelector` in `values-<env>.yaml`) |
 | **Tailscale operator** | Puts things on the tailnet instead of the internet: an Ingress with class `tailscale` becomes its own tailnet device with HTTPS |
 | **Forgejo** | A git server at https://forgejo.tailf69bc5.ts.net, tailnet only: pull mirrors of the GitHub repos, and the scheduled Renovate job. Its CI runs on the VM `harvest` on `joseph`, not in this cluster. The volume is not backed up yet: mirrors refill from GitHub, anything home-only does not |
 
