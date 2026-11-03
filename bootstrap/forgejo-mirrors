@@ -27,7 +27,7 @@ kubectl get node hamon >/dev/null 2>&1 \
 tmp="$(mktemp -d)"
 kubectl -n forgejo port-forward svc/forgejo-http "$PORT:3000" >/dev/null 2>&1 &
 pf=$!
-trap 'kill $pf 2>/dev/null; rm -rf "$tmp"' EXIT
+trap 'kill $pf 2>/dev/null; wait $pf 2>/dev/null; rm -rf "$tmp"' EXIT
 
 # curl reads the Authorization header from a file, so the admin password is never in `ps`.
 python3 - "$tmp/auth" <<'EOF'
@@ -68,7 +68,19 @@ gh repo list "$OWNER" --limit 200 --json name,visibility,isFork \
 
 if grep -q ' PRIVATE$' "$tmp/repos"; then
   read -rsp "GitHub token for the private repositories (Contents: Read-only): " gh_token; echo
+  gh_token="${gh_token//[[:space:]]/}" # a paste into a hidden prompt can carry spaces you cannot see
   [[ -n "$gh_token" ]] || { echo "No token: private repositories cannot be mirrored." >&2; exit 1; }
+
+  # Try it on one private repository before Forgejo does, ten times over. From a file, like the
+  # admin password, so it is never in `ps`.
+  printf 'Authorization: Bearer %s\n' "$gh_token" > "$tmp/gh-auth"
+  probe="$(awk '$2 == "PRIVATE" {print $1; exit}' "$tmp/repos")"
+  case "$(curl -sS -o /dev/null -w '%{http_code}' -H @"$tmp/gh-auth" "https://api.github.com/repos/$OWNER/$probe")" in
+    200) ;;
+    401) echo "GitHub rejected that token (401): it was mistyped, cut short, revoked or expired." >&2; exit 1 ;;
+    403|404) echo "The token is valid but cannot read $OWNER/$probe: give it All repositories and Contents: Read-only." >&2; exit 1 ;;
+    *) echo "Could not check the token against GitHub." >&2; exit 1 ;;
+  esac
 fi
 
 while read -r name visibility; do
