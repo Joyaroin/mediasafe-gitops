@@ -1,0 +1,52 @@
+#!/bin/sh
+# Installs k3s as an agent on hermit, the VM on the Proxmox host joseph, and joins it to hamon over
+# the LAN. The same k3s version and firewall shape as install-k3s; the agent runs workloads only, so
+# there is no API server here, no kubeconfig and no Vault directory. Vault's volume is pinned to
+# hamon, so it never moves here.
+# hamon's agent token is read from stdin, so it never lands in an argument, the environment or a
+# shell history. It can join agents only, not servers. Run once per machine, from the Mac:
+#   scp bootstrap/install-k3s-agent hermit:
+#   ssh hamon sudo cat /var/lib/rancher/k3s/server/agent-token | ssh hermit sudo sh install-k3s-agent
+set -eu
+
+K3S_VERSION="v1.36.4+k3s1" # the same as install-k3s; upgrade both together
+SERVER_IP="192.168.2.197"  # hamon's DHCP reservation
+
+if [ -t 0 ]; then
+  echo "Pipe hamon's agent token into this script; see the header." >&2
+  exit 1
+fi
+
+# The same reason as install-k3s: left on, cloud-init regenerates the SSH host keys whenever
+# Proxmox rewrites the cloud-init drive.
+touch /etc/cloud/cloud-init.disabled
+
+mkdir -p /etc/rancher/k3s
+install -m 0600 /dev/null /etc/rancher/k3s/agent-token
+cat > /etc/rancher/k3s/agent-token
+[ -s /etc/rancher/k3s/agent-token ] || { echo "The agent token was empty." >&2; exit 1; }
+
+cat > /etc/rancher/k3s/config.yaml <<EOF
+node-name: hermit
+server: https://${SERVER_IP}:6443
+token-file: /etc/rancher/k3s/agent-token
+EOF
+
+# ── Firewall ───────────────────────────────────────────────────────────────────────────────
+# As on hamon: SSH from the LAN and the tailnet, pods and services from the cluster's own ranges.
+# From hamon only: the kubelet (API server and metrics-server) and flannel's VXLAN pod network.
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow from 192.168.2.0/24 to any port 22 proto tcp comment 'SSH from the home LAN'
+ufw allow in on tailscale0 to any port 22 proto tcp comment 'SSH over Tailscale'
+ufw allow from 10.42.0.0/16 to any comment 'k3s pods'
+ufw allow from 10.43.0.0/16 to any comment 'k3s services'
+ufw allow from "$SERVER_IP" to any port 10250 proto tcp comment 'kubelet from hamon'
+ufw allow from "$SERVER_IP" to any port 8472 proto udp comment 'flannel VXLAN from hamon'
+ufw --force enable
+
+# INSTALL_K3S_EXEC=agent: without K3S_URL in the environment the installer would set up a server,
+# even though config.yaml names one.
+curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="$K3S_VERSION" INSTALL_K3S_EXEC="agent" sh -
+
+systemctl is-active k3s-agent
