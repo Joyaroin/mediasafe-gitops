@@ -1,0 +1,22 @@
+# Chart reference: https://github.com/tailscale/tailscale/tree/v1.104.4/cmd/k8s-operator/deploy/chart
+
+# No oauth block: the operator reads Secret operator-oauth, which External Secrets writes from
+# Vault (secrets/oauth.yaml). Keeping the values out of here keeps them out of git.
+
+operatorConfig:
+  # The operator's own device in the admin console.
+  hostname: homelab-operator
+  # Tagged devices belong to the tailnet, not to a person, and never expire. These two tags
+  # must be in the tailnet policy's tagOwners, with tag:k8s-operator owning tag:k8s.
+  defaultTags: tag:k8s-operator
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { memory: 192Mi }
+
+# Every proxy the operator starts (one per exposed Ingress or Service) is tagged tag:k8s.
+proxyConfig:
+  defaultTags: tag:k8s
+
+# Not used: kubectl reaches the API server over Tailscale already (the node is on the tailnet).
+apiServerProxyConfig:
+  mode: "false"
