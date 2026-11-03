@@ -83,16 +83,8 @@ if grep -q ' PRIVATE$' "$tmp/repos"; then
   esac
 fi
 
-# A mirror is a backup, never a place CI runs: Forgejo also reads .github/workflows/, and the
-# runner on harvest must only ever run workflows that live in Forgejo on purpose.
-no_actions() { # name
-  [[ "$(api PATCH "/repos/$ORG/$1" -o /dev/null -w '%{http_code}' --data '{"has_actions": false}')" == 200 ]] \
-    || echo "  $1: could not turn Actions off" >&2
-}
-
 while read -r name visibility; do
   if [[ "$(status GET "/repos/$ORG/$name")" == 200 ]]; then
-    no_actions "$name"
     echo "  $name: already mirrored"
     continue
   fi
@@ -111,7 +103,6 @@ print(json.dumps({
     "private": True, "auth_token": token,
 }))' "$name" "$OWNER" "$ORG" | api POST /repos/migrate -o "$tmp/out" -w '%{http_code}' --data @-)"
   if [[ "$code" == 201 ]]; then
-    no_actions "$name"
     echo "  $name: mirrored"
   else
     echo "  $name: FAILED ($code) $(cat "$tmp/out")" >&2

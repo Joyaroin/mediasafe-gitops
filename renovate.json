@@ -1,44 +1,50 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Run by the Renovate job on harvest (Forgejo repo adham/renovate). Merging a pull request here is a deploy: Argo CD syncs it. Nothing merges itself.",
-  "extends": ["config:recommended"],
+  "description": "Run by the Renovate job on echoes (Joyaroin/renovate). Merging a pull request here is a deploy: Argo CD syncs it. Nothing merges itself.",
+  "extends": [
+    "config:recommended"
+  ],
   "timezone": "America/Toronto",
-  "schedule": ["* * * * 1"],
+  "schedule": [
+    "* * * * 1"
+  ],
   "minimumReleaseAge": "3 days",
   "argocd": {
-    "managerFilePatterns": ["/^apps/.+\\.ya?ml$/"]
+    "managerFilePatterns": [
+      "/^apps/.+\\.ya?ml$/"
+    ]
   },
   "packageRules": [
     {
       "description": "MediaSafe's own image: CI writes its tag on every merge and promote copies it to prod. Never Renovate.",
-      "matchPackageNames": ["ghcr.io/joyaroin/mediasafe"],
+      "matchPackageNames": [
+        "ghcr.io/joyaroin/mediasafe"
+      ],
       "enabled": false
     },
     {
       "description": "Not deployed by Argo CD: merging changes the script, not the machine.",
-      "matchDepNames": ["k3s-io/k3s", "forgejo/runner"],
-      "prBodyNotes": ["**Merging this does not upgrade anything.** Rerun the changed `bootstrap/` script on the machine it installs (see its header) after merging."]
+      "matchDepNames": [
+        "k3s-io/k3s"
+      ],
+      "prBodyNotes": [
+        "**Merging this does not upgrade anything.** Rerun the changed `bootstrap/` script on the machine it installs (see its header) after merging."
+      ]
     }
   ],
   "customManagers": [
     {
       "customType": "regex",
       "description": "k3s, pinned in both install scripts. One pull request changes both.",
-      "managerFilePatterns": ["/^bootstrap/install-k3s(-agent)?$/"],
-      "matchStrings": ["K3S_VERSION=\"(?<currentValue>v[^\"]+)\""],
+      "managerFilePatterns": [
+        "/^bootstrap/install-k3s(-agent)?$/"
+      ],
+      "matchStrings": [
+        "K3S_VERSION=\"(?<currentValue>v[^\"]+)\""
+      ],
       "datasourceTemplate": "github-releases",
       "depNameTemplate": "k3s-io/k3s",
       "versioningTemplate": "regex:^v(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)\\+k3s(?<build>\\d+)$"
-    },
-    {
-      "customType": "regex",
-      "description": "forgejo-runner on harvest.",
-      "managerFilePatterns": ["/^bootstrap/install-harvest$/"],
-      "matchStrings": ["RUNNER_VERSION=\"(?<currentValue>[^\"]+)\""],
-      "datasourceTemplate": "forgejo-releases",
-      "registryUrlTemplate": "https://code.forgejo.org",
-      "depNameTemplate": "forgejo/runner",
-      "extractVersionTemplate": "^v(?<version>.+)$"
     }
   ]
 }

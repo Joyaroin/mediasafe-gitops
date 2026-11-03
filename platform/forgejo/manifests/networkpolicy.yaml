@@ -8,8 +8,7 @@
 # Nothing else in the cluster can reach Forgejo, and Forgejo can reach nothing in the cluster:
 # not MediaSafe, Argo CD, Traefik, Vault or the webhooks. "Internet" is every address except
 # private, shared and link-local ranges, as in charts/mediasafe; that also keeps the home LAN
-# and the tailnet out of reach. The runner on harvest comes in through the tailnet proxy like
-# any other client.
+# and the tailnet out of reach.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
