@@ -44,6 +44,9 @@ commits), and a promote workflow copies it to `values-prod.yaml`.
 | `bootstrap/vault-init` | Initialises Vault and stores the unseal key and root token in Bitwarden. Once per Vault volume |
 | `bootstrap/vault-unseal` | Unseals Vault with the key from Bitwarden. **After every Vault restart** |
 | `bootstrap/vault-restore-drill` | Restores the newest R2 snapshot into a throwaway Vault and reads a canary back. The restore procedure, and its test |
+| `bootstrap/install-harvest` | Sets up `harvest`, the VM on `joseph` that runs Forgejo's CI jobs in throwaway containers, with a firewall that keeps them off the LAN and the tailnet. Run once per VM |
+| `bootstrap/register-runner` | Registers `harvest`'s runner with Forgejo, the token piped in from Forgejo and never shown |
+| `bootstrap/forgejo-mirrors` | Mirrors every GitHub repo into Forgejo's `github` organisation. Run again for new repos |
 
 ## Bootstrapping a cluster
 

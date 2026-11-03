@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# Mirrors every GitHub repository of Joyaroin's into Forgejo's `github` organisation. A pull
+# mirror is a read-only copy Forgejo refreshes from GitHub every 8 hours (gitea.config.mirror in
+# platform/forgejo/values.yaml): a second copy of the code that GitHub losing it, or the account,
+# cannot take. Forks are skipped. Repositories already mirrored are left alone, so run it again
+# whenever there is a new repository on GitHub.
+#
+# Private repositories need a GitHub token, kept by Forgejo for each mirror's refreshes. Make a
+# fine-grained one at https://github.com/settings/personal-access-tokens: resource owner Joyaroin,
+# All repositories, permissions Contents: Read-only (Metadata: Read-only comes with it), and an
+# expiry you will notice. It is asked for at a hidden prompt.
+#
+#   export KUBECONFIG=~/.kube/homelab.yaml
+#   bootstrap/forgejo-mirrors
+#
+# Needs gh (signed in), kubectl and python3. Signs in to Forgejo as its admin, with the password
+# from the forgejo-admin Secret; no credential is ever a command-line argument.
+set -euo pipefail
+
+OWNER=Joyaroin
+ORG=github
+PORT=13000
+
+kubectl get node hamon >/dev/null 2>&1 \
+  || { echo "kubectl is not the home cluster. Run: export KUBECONFIG=~/.kube/homelab.yaml" >&2; exit 1; }
+
+tmp="$(mktemp -d)"
+kubectl -n forgejo port-forward svc/forgejo-http "$PORT:3000" >/dev/null 2>&1 &
+pf=$!
+trap 'kill $pf 2>/dev/null; wait $pf 2>/dev/null; rm -rf "$tmp"' EXIT
+
+# curl reads the Authorization header from a file, so the admin password is never in `ps`.
+python3 - "$tmp/auth" <<'EOF'
+import base64, json, subprocess, sys
+s = json.loads(subprocess.check_output(
+    ["kubectl", "-n", "forgejo", "get", "secret", "forgejo-admin", "-o", "json"]))["data"]
+user, password = (base64.b64decode(s[k]).decode() for k in ("username", "password"))
+basic = base64.b64encode(f"{user}:{password}".encode()).decode()
+with open(sys.argv[1], "w") as f:
+    f.write(f"Authorization: Basic {basic}\n")
+EOF
+chmod 600 "$tmp/auth"
+
+api() { # method path [curl args…]
+  local method="$1" path="$2"; shift 2
+  curl -sS -H @"$tmp/auth" -H 'Content-Type: application/json' -X "$method" \
+    "http://127.0.0.1:$PORT/api/v1$path" "$@"
+}
+status() { # method path → HTTP status only
+  api "$1" "$2" -o /dev/null -w '%{http_code}'
+}
+
+for _ in $(seq 20); do
+  [[ "$(status GET /user)" == 200 ]] && break
+  sleep 1
+done
+[[ "$(status GET /user)" == 200 ]] || { echo "Cannot sign in to Forgejo as its admin." >&2; exit 1; }
+
+if [[ "$(status GET "/orgs/$ORG")" != 200 ]]; then
+  api POST /orgs -o /dev/null --data @- <<EOF
+{"username": "$ORG", "full_name": "Mirrors of github.com/$OWNER", "visibility": "private"}
+EOF
+  echo "Created organisation $ORG."
+fi
+
+gh repo list "$OWNER" --limit 200 --json name,visibility,isFork \
+  --jq '.[] | select(.isFork | not) | "\(.name) \(.visibility)"' > "$tmp/repos"
+
+if grep -q ' PRIVATE$' "$tmp/repos"; then
+  read -rsp "GitHub token for the private repositories (Contents: Read-only): " gh_token; echo
+  gh_token="${gh_token//[[:space:]]/}" # a paste into a hidden prompt can carry spaces you cannot see
+  [[ -n "$gh_token" ]] || { echo "No token: private repositories cannot be mirrored." >&2; exit 1; }
+
+  # Try it on one private repository before Forgejo does, ten times over. From a file, like the
+  # admin password, so it is never in `ps`.
+  printf 'Authorization: Bearer %s\n' "$gh_token" > "$tmp/gh-auth"
+  probe="$(awk '$2 == "PRIVATE" {print $1; exit}' "$tmp/repos")"
+  case "$(curl -sS -o /dev/null -w '%{http_code}' -H @"$tmp/gh-auth" "https://api.github.com/repos/$OWNER/$probe")" in
+    200) ;;
+    401) echo "GitHub rejected that token (401): it was mistyped, cut short, revoked or expired." >&2; exit 1 ;;
+    403|404) echo "The token is valid but cannot read $OWNER/$probe: give it All repositories and Contents: Read-only." >&2; exit 1 ;;
+    *) echo "Could not check the token against GitHub." >&2; exit 1 ;;
+  esac
+fi
+
+# A mirror is a backup, never a place CI runs: Forgejo also reads .github/workflows/, and the
+# runner on harvest must only ever run workflows that live in Forgejo on purpose.
+no_actions() { # name
+  [[ "$(api PATCH "/repos/$ORG/$1" -o /dev/null -w '%{http_code}' --data '{"has_actions": false}')" == 200 ]] \
+    || echo "  $1: could not turn Actions off" >&2
+}
+
+while read -r name visibility; do
+  if [[ "$(status GET "/repos/$ORG/$name")" == 200 ]]; then
+    no_actions "$name"
+    echo "  $name: already mirrored"
+    continue
+  fi
+  token=""
+  [[ "$visibility" == PRIVATE ]] && token="$gh_token"
+  # The request body carries the GitHub token, so it goes in on stdin, twice: printf is a shell
+  # builtin, so neither step puts the token in an argument.
+  code="$(printf '%s' "$token" | python3 -c '
+import json, sys
+name, owner, org = sys.argv[1:4]
+token = sys.stdin.read()
+print(json.dumps({
+    "clone_addr": f"https://github.com/{owner}/{name}.git",
+    "repo_owner": org, "repo_name": name,
+    "service": "github", "mirror": True, "mirror_interval": "8h",
+    "private": True, "auth_token": token,
+}))' "$name" "$OWNER" "$ORG" | api POST /repos/migrate -o "$tmp/out" -w '%{http_code}' --data @-)"
+  if [[ "$code" == 201 ]]; then
+    no_actions "$name"
+    echo "  $name: mirrored"
+  else
+    echo "  $name: FAILED ($code) $(cat "$tmp/out")" >&2
+  fi
+done < "$tmp/repos"
+unset gh_token token

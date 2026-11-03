@@ -1,0 +1,35 @@
+#!/bin/sh
+# Registers harvest's forgejo-runner with Forgejo, as an instance-wide runner any repository can
+# use. Forgejo issues the registration token; it is read from stdin, so it never reaches a
+# terminal, the environment or a shell history. (forgejo-runner takes it as an argument, so it is
+# visible to `ps` on harvest for the second the command runs; only adham and root log in there.)
+# After registering, the runner keeps its own credential in /var/lib/forgejo-runner/.runner and
+# the token is no longer needed. Run from the Mac, after bootstrap/install-harvest:
+#   scp bootstrap/register-runner harvest:
+#   kubectl -n forgejo exec deploy/forgejo -c forgejo -- forgejo actions generate-runner-token \
+#     | ssh harvest sudo sh register-runner
+set -eu
+
+INSTANCE="https://forgejo.tailf69bc5.ts.net"
+# What a workflow's `runs-on:` may ask for, and the image each one means. Both are Debian with
+# Node, which most actions need.
+LABELS="docker:docker://data.forgejo.org/oci/node:22-bookworm,ubuntu-latest:docker://data.forgejo.org/oci/node:22-bookworm"
+
+if [ -t 0 ]; then
+  echo "Pipe a runner token from Forgejo into this script; see the header." >&2
+  exit 1
+fi
+token="$(cat)"
+[ -n "$token" ] || { echo "The runner token was empty." >&2; exit 1; }
+
+# Forgejo now resolves, so the egress guard can let jobs reach it.
+systemctl restart ci-egress-guard
+
+cd /var/lib/forgejo-runner
+rm -f .runner
+sudo -u runner forgejo-runner register --no-interactive \
+  --instance "$INSTANCE" --token "$token" --name harvest --labels "$LABELS"
+unset token
+
+systemctl restart forgejo-runner
+systemctl is-active forgejo-runner
