@@ -1,6 +1,6 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "description": "Run by the Renovate job on echoes (Joyaroin/renovate). Merging a pull request here is a deploy: Argo CD syncs it. Nothing merges itself.",
+  "description": "Run by the Renovate job on echoes (joyballrun/renovate). Merging a pull request here is a deploy: Argo CD syncs it. Nothing merges itself.",
   "extends": [
     "config:recommended"
   ],
