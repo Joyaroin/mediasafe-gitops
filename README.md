@@ -47,6 +47,8 @@ commits), and a promote workflow copies it to `values-prod.yaml`.
 | `bootstrap/install-harvest` | Sets up `harvest`, the VM on `joseph` that runs Forgejo's CI jobs in throwaway containers, with a firewall that keeps them off the LAN and the tailnet. Run once per VM |
 | `bootstrap/register-runner` | Registers `harvest`'s runner with Forgejo, the token piped in from Forgejo and never shown |
 | `bootstrap/forgejo-mirrors` | Mirrors every GitHub repo into Forgejo's `github` organisation. Run again for new repos |
+| `bootstrap/install-github-runner` | Sets up `echoes`, the VM on `joseph` that runs GitHub Actions jobs for `Joyaroin/renovate`: a fresh runner per job, off the tailnet. Trusted code only, since jobs have Docker. Run once per VM |
+| `bootstrap/register-github-runner` | Connects `echoes` to that repository, the token piped in over SSH and kept root-only. Again when the token expires |
 
 ## Bootstrapping a cluster
 

@@ -1,0 +1,182 @@
+#!/bin/sh
+# Sets up echoes, the VM on the Proxmox host joseph that runs GitHub Actions jobs for one private
+# repository, Joyaroin/renovate: on a personal account, a runner belongs to a single repository.
+# Not a k3s node and not on the tailnet: the runner only dials out to GitHub. Each job gets a fresh
+# runner, and the work directory and Docker state are wiped between jobs. Never register it to a
+# public repository: a fork's pull request could run code here.
+#
+# Jobs have Docker, and Docker access is root on this VM. The firewall below stops accidents, not a
+# hostile job, which could get around it and read the token in /etc/github-runner. So: only code
+# you trust, and keep that token to this one repository.
+#
+# The VM, made on joseph from the checked Ubuntu 26.04 cloud image, the same way as harvest:
+#   qm create 204 --name echoes --memory 3072 --balloon 0 --cores 4 --cpu host --ostype l26 \
+#     --net0 virtio,bridge=vmbr0 --scsihw virtio-scsi-single --agent enabled=1 --onboot 1 \
+#     --serial0 socket --vga serial0 \
+#     --scsi0 local-lvm:0,import-from=/var/lib/vz/import/ubuntu-26.04-server-cloudimg-amd64.img,discard=on,iothread=1,ssd=1 \
+#     --ide2 local-lvm:cloudinit --boot order=scsi0 --ciuser adham --sshkeys <key> \
+#     --ipconfig0 ip=dhcp --nameserver 192.168.2.1
+#   qm resize 204 scsi0 60G && qm start 204
+#
+# Then, from the Mac (echoes has no tailnet name; ~/.ssh/config reaches it through joseph):
+#   scp bootstrap/install-github-runner echoes:
+#   ssh echoes sudo sh install-github-runner
+# Finally bootstrap/register-github-runner. Safe to run again: every step replaces what it writes.
+set -eu
+
+RUNNER_VERSION="2.338.2"
+# The linux-x64 line of the release notes' checksums, not the first one listed: that's Windows.
+RUNNER_SHA256="baebf204307bac6193480852732f0aba2ae97b6c5597c244f4d5558390147c40"
+
+# As on the other VMs: left on, cloud-init regenerates the SSH host keys whenever Proxmox rewrites
+# the cloud-init drive.
+touch /etc/cloud/cloud-init.disabled
+
+apt-get update -qq
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq qemu-guest-agent docker.io ufw curl jq
+systemctl enable --now qemu-guest-agent docker
+
+# ── Firewall for the VM ──────────────────────────────────────────────────────────────────────
+# Nothing listens here but SSH. The runner only makes outbound connections.
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow from 192.168.2.0/24 to any port 22 proto tcp comment 'SSH from the home LAN'
+ufw --force enable
+
+# ── Docker ───────────────────────────────────────────────────────────────────────────────────
+# Public resolvers, so containers need nothing on the LAN.
+mkdir -p /etc/docker
+cat > /etc/docker/daemon.json <<'EOF'
+{
+  "dns": ["1.1.1.1", "9.9.9.9"],
+  "log-driver": "json-file",
+  "log-opts": { "max-size": "10m", "max-file": "3" }
+}
+EOF
+systemctl restart docker
+
+# ── What jobs may reach ──────────────────────────────────────────────────────────────────────
+# The internet, and nothing private. Steps run on the host as the user ghrunner, which the OUTPUT
+# rules match by owner; steps in containers leave through Docker's DOCKER-USER chain. Host DNS goes
+# through systemd-resolved on 127.0.0.53, which is not dropped.
+id ghrunner >/dev/null 2>&1 || useradd --system --create-home --home-dir /var/lib/github-runner \
+  --shell /bin/bash --groups docker ghrunner
+
+cat > /usr/local/sbin/ci-egress-guard <<'EOF'
+#!/usr/bin/env bash
+# Rebuilds both rule sets from scratch. See bootstrap/install-github-runner in morioh-cho-gitops.
+set -euo pipefail
+private=(192.168.0.0/16 10.0.0.0/8 172.16.0.0/12 100.64.0.0/10 169.254.0.0/16)
+
+iptables -F DOCKER-USER
+iptables -A DOCKER-USER -m conntrack --ctstate RELATED,ESTABLISHED -j RETURN
+for net in "${private[@]}"; do iptables -A DOCKER-USER -d "$net" -j DROP; done
+iptables -A DOCKER-USER -j RETURN
+
+iptables -N CI-OUTPUT 2>/dev/null || iptables -F CI-OUTPUT
+for net in "${private[@]}"; do iptables -A CI-OUTPUT -d "$net" -j REJECT; done
+iptables -C OUTPUT -m owner --uid-owner ghrunner -j CI-OUTPUT 2>/dev/null \
+  || iptables -I OUTPUT -m owner --uid-owner ghrunner -j CI-OUTPUT
+EOF
+chmod 0755 /usr/local/sbin/ci-egress-guard
+
+cat > /etc/systemd/system/ci-egress-guard.service <<'EOF'
+[Unit]
+Description=Limit what CI jobs can reach
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/ci-egress-guard
+
+[Install]
+WantedBy=multi-user.target docker.service
+EOF
+
+# ── The runner ───────────────────────────────────────────────────────────────────────────────
+# Kept read-only in /opt. Each job runs from a fresh copy.
+tmp="$(mktemp -d)"
+tarball="actions-runner-linux-x64-${RUNNER_VERSION}.tar.gz"
+curl -fsSL -o "$tmp/$tarball" \
+  "https://github.com/actions/runner/releases/download/v${RUNNER_VERSION}/$tarball"
+echo "$RUNNER_SHA256  $tmp/$tarball" | sha256sum -c -
+rm -rf /opt/actions-runner
+mkdir -p /opt/actions-runner
+tar -xzf "$tmp/$tarball" -C /opt/actions-runner
+rm -rf "$tmp"
+/opt/actions-runner/bin/installdependencies.sh
+
+# One job per pass. Runs as root, so ghrunner never holds the management token: the loop swaps it
+# for a one-hour registration token, and only that reaches the runner.
+cat > /usr/local/sbin/github-runner-loop <<'EOF'
+#!/usr/bin/env bash
+# Register, run one job, wipe, repeat. See bootstrap/install-github-runner in morioh-cho-gitops.
+set -uo pipefail
+repo="$(cat /etc/github-runner/repo)"
+dir=/var/lib/github-runner/runner
+
+while true; do
+  # The token goes to curl in a file, so it is never in `ps`.
+  reg="$(curl -fsS -X POST -H @/etc/github-runner/auth-header \
+      -H 'Accept: application/vnd.github+json' \
+      "https://api.github.com/repos/$repo/actions/runners/registration-token" | jq -r .token)"
+  if [[ -z "$reg" || "$reg" == null ]]; then
+    echo "Could not get a registration token from GitHub; retrying in a minute." >&2
+    sleep 60
+    continue
+  fi
+
+  rm -rf "$dir"
+  cp -a /opt/actions-runner "$dir"
+  chown -R ghrunner:ghrunner "$dir"
+
+  runuser -u ghrunner -- bash -c "cd '$dir' && ./config.sh --unattended --ephemeral --replace \
+    --url 'https://github.com/$repo' --token '$reg' --name 'echoes' --labels home"
+  unset reg
+  runuser -u ghrunner -- bash -c "cd '$dir' && ./run.sh"
+
+  # Nothing a job left behind reaches the next one.
+  docker ps -aq | xargs -r docker rm -f >/dev/null
+  # Except images, which stay until the disk fills: Renovate's alone is 2 GB, and Docker's until
+  # filter goes by build date, so it can't mean "unused for a week". A job could replace a kept
+  # image, which is one more reason this VM is for trusted code only.
+  docker volume prune -af >/dev/null
+  docker network prune -f >/dev/null
+  docker builder prune -af >/dev/null
+  if (( $(df --output=pcent /var/lib/docker | tail -1 | tr -dc 0-9) > 80 )); then
+    docker image prune -af >/dev/null
+  fi
+  rm -rf "$dir" /var/lib/github-runner/.cache
+  # Only what the job made: /tmp also holds other services' private directories.
+  find /tmp -xdev -mindepth 1 -user ghrunner -delete 2>/dev/null
+  sleep 5
+done
+EOF
+chmod 0700 /usr/local/sbin/github-runner-loop
+
+cat > /etc/systemd/system/github-runner.service <<'EOF'
+[Unit]
+Description=GitHub Actions runner, one job at a time
+After=docker.service ci-egress-guard.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+# Written by bootstrap/register-github-runner. Until then there is nothing to run as.
+ConditionPathExists=/etc/github-runner/auth-header
+
+[Service]
+ExecStart=/usr/local/sbin/github-runner-loop
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now ci-egress-guard
+systemctl enable github-runner
+systemctl is-active docker ci-egress-guard

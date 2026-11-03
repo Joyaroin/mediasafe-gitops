@@ -1,0 +1,41 @@
+#!/bin/sh
+# Connects echoes to one GitHub repository. The token is read from stdin, so it never reaches an
+# argument, the environment or a shell history, and it lands in a file only root can read.
+#
+# Make a fine-grained token at https://github.com/settings/personal-access-tokens: resource owner
+# Joyaroin, Only select repositories → that one repository, repository permission Administration:
+# Read and write, and an expiry you will notice. Administration can change that repository's
+# settings, which is why it must not cover any other. Then, from the Mac:
+#   scp bootstrap/register-github-runner echoes:
+#   read -rs "?GitHub token: " t; echo; printf '%s' "$t" | ssh echoes sudo sh register-github-runner Joyaroin/renovate; unset t
+#
+# When the token expires the runner stops taking jobs. Run this again with a new one.
+set -eu
+
+repo="${1:?Name the repository as owner/name; see the header.}"
+
+if [ -t 0 ]; then
+  echo "Pipe the GitHub token into this script; see the header." >&2
+  exit 1
+fi
+token="$(cat)"
+[ -n "$token" ] || { echo "The token was empty." >&2; exit 1; }
+
+umask 077
+mkdir -p /etc/github-runner
+printf '%s\n' "$repo" > /etc/github-runner/repo
+printf 'Authorization: Bearer %s\n' "$token" > /etc/github-runner/auth-header
+unset token
+
+# Prove it now rather than in the service's log.
+code="$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H @/etc/github-runner/auth-header \
+  -H 'Accept: application/vnd.github+json' \
+  "https://api.github.com/repos/$repo/actions/runners/registration-token")"
+if [ "$code" != 201 ]; then
+  rm -f /etc/github-runner/auth-header
+  echo "GitHub answered $code: check the repository's name and the token's permission." >&2
+  exit 1
+fi
+
+systemctl restart github-runner
+systemctl is-active github-runner
