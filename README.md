@@ -45,8 +45,8 @@ commits), and a promote workflow copies it to `values-prod.yaml`.
 | `bootstrap/vault-unseal` | Unseals Vault with the key from Bitwarden. **After every Vault restart** |
 | `bootstrap/vault-restore-drill` | Restores the newest R2 snapshot into a throwaway Vault and reads a canary back. The restore procedure, and its test |
 | `bootstrap/forgejo-mirrors` | Mirrors every GitHub repo into Forgejo's `github` organisation. Run again for new repos |
-| `bootstrap/install-github-runner` | Sets up `echoes`, the VM on `joseph` that runs GitHub Actions jobs for `Joyaroin/renovate`: a fresh runner per job, off the tailnet. Trusted code only, since jobs have Docker. Run once per VM |
-| `bootstrap/register-github-runner` | Connects `echoes` to that repository, the token piped in over SSH and kept root-only. Again when the token expires |
+| `bootstrap/install-github-runner` | Sets up `echoes`, the VM on `joseph` that runs GitHub Actions jobs for private repositories in the `joyballrun` organisation: a fresh runner per job, off the tailnet. Trusted code only, since jobs have Docker. Run once per VM |
+| `bootstrap/register-github-runner` | Connects `echoes` to the organisation, the token piped in over SSH and kept root-only. Again when the token expires |
 
 ## Bootstrapping a cluster
 

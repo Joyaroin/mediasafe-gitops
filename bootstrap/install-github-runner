@@ -1,13 +1,14 @@
 #!/bin/sh
-# Sets up echoes, the VM on the Proxmox host joseph that runs GitHub Actions jobs for one private
-# repository, Joyaroin/renovate: on a personal account, a runner belongs to a single repository.
-# Not a k3s node and not on the tailnet: the runner only dials out to GitHub. Each job gets a fresh
-# runner, and the work directory and Docker state are wiped between jobs. Never register it to a
-# public repository: a fork's pull request could run code here.
+# Sets up echoes, the VM on the Proxmox host joseph that runs GitHub Actions jobs for the private
+# repositories of the organisation joyballrun. Any of them can use it with
+# `runs-on: [self-hosted, home]`. Not a k3s node and not on the tailnet: the runner only dials out
+# to GitHub. Each job gets a fresh runner, and the work directory and Docker state are wiped
+# between jobs. Never let it serve public repositories, which an organisation's default runner
+# group refuses: a fork's pull request could run code here.
 #
 # Jobs have Docker, and Docker access is root on this VM. The firewall below stops accidents, not a
 # hostile job, which could get around it and read the token in /etc/github-runner. So: only code
-# you trust, and keep that token to this one repository.
+# you trust. That token can do nothing but manage the organisation's runners.
 #
 # The VM, made on joseph from the checked Ubuntu 26.04 cloud image, the same way as hermit:
 #   qm create 204 --name echoes --memory 3072 --balloon 0 --cores 4 --cpu host --ostype l26 \
@@ -116,14 +117,14 @@ cat > /usr/local/sbin/github-runner-loop <<'EOF'
 #!/usr/bin/env bash
 # Register, run one job, wipe, repeat. See bootstrap/install-github-runner in morioh-cho-gitops.
 set -uo pipefail
-repo="$(cat /etc/github-runner/repo)"
+org="$(cat /etc/github-runner/org)"
 dir=/var/lib/github-runner/runner
 
 while true; do
   # The token goes to curl in a file, so it is never in `ps`.
   reg="$(curl -fsS -X POST -H @/etc/github-runner/auth-header \
       -H 'Accept: application/vnd.github+json' \
-      "https://api.github.com/repos/$repo/actions/runners/registration-token" | jq -r .token)"
+      "https://api.github.com/orgs/$org/actions/runners/registration-token" | jq -r .token)"
   if [[ -z "$reg" || "$reg" == null ]]; then
     echo "Could not get a registration token from GitHub; retrying in a minute." >&2
     sleep 60
@@ -135,15 +136,15 @@ while true; do
   chown -R ghrunner:ghrunner "$dir"
 
   runuser -u ghrunner -- bash -c "cd '$dir' && ./config.sh --unattended --ephemeral --replace \
-    --url 'https://github.com/$repo' --token '$reg' --name 'echoes' --labels home"
+    --url 'https://github.com/$org' --token '$reg' --name 'echoes' --labels home"
   unset reg
   runuser -u ghrunner -- bash -c "cd '$dir' && ./run.sh"
 
   # Nothing a job left behind reaches the next one.
   docker ps -aq | xargs -r docker rm -f >/dev/null
-  # Except images, which stay until the disk fills: Renovate's alone is 2 GB, and Docker's until
-  # filter goes by build date, so it can't mean "unused for a week". A job could replace a kept
-  # image, which is one more reason this VM is for trusted code only.
+  # Except images, which stay until the disk fills, so jobs don't pull them every time. Docker's
+  # until filter goes by build date, so it can't mean "unused for a week". A job could replace a
+  # kept image, which is one more reason this VM is for trusted code only.
   docker volume prune -af >/dev/null
   docker network prune -f >/dev/null
   docker builder prune -af >/dev/null
