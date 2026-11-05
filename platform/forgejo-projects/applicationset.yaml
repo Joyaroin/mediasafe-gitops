@@ -5,6 +5,9 @@
 # The address is written out rather than taken from the scanner's `url`: that is Forgejo's
 # Tailscale name, which pods can't resolve.
 #
+# Production follows the production branch, which only a project's promote workflow moves. On
+# main it would pick up merged chart changes without a promote.
+#
 # Like every app here, deleting a project's Application leaves what it created running.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
@@ -32,7 +35,9 @@ spec:
           - list:
               elements:
                 - env: staging
+                  revision: main
                 - env: production
+                  revision: production
   template:
     metadata:
       name: '{{ .repository }}-{{ .env }}'
@@ -40,7 +45,7 @@ spec:
       project: forgejo-projects
       source:
         repoURL: 'http://192.168.2.14:3000/projects/{{ .repository }}.git'
-        targetRevision: main
+        targetRevision: '{{ .revision }}'
         path: deploy/chart
         helm:
           releaseName: '{{ .repository }}'
