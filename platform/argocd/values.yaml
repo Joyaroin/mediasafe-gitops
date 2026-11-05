@@ -12,10 +12,10 @@ dex:
 notifications:
   enabled: false
 
-# Every app is a plain Application in apps/, so the ApplicationSet controller has no work.
-# The chart has no switch for it; zero replicas is the way off.
+# Finds the projects on Forgejo (platform/forgejo-projects). Everything else is a plain
+# Application in apps/.
 applicationSet:
-  replicas: 0
+  replicas: 1
 
 configs:
   params:

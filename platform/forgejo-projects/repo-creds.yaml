@@ -1,0 +1,29 @@
+# Argo CD's read-only Forgejo login, from Vault's kv/infra/argocd/forgejo-read, through the
+# SecretStore in platform/argocd-public. The label makes Argo CD use it for every repo under
+# the url; the ApplicationSet's scanner reads the same token as `password`.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: forgejo-repo-creds
+  namespace: argocd
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    kind: SecretStore
+    name: vault
+  target:
+    name: forgejo-repo-creds
+    template:
+      metadata:
+        labels:
+          argocd.argoproj.io/secret-type: repo-creds
+      data:
+        type: git
+        url: http://192.168.2.14:3000/projects
+        username: adham
+        password: '{{ .token }}'
+  data:
+    - secretKey: token
+      remoteRef:
+        key: infra/argocd/forgejo-read
+        property: token

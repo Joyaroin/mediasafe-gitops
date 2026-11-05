@@ -1,0 +1,18 @@
+# What a Forgejo project may touch. Agents merge these repos, so a chart here can only reach
+# its own proj-* namespaces: nothing in MediaSafe, Vault or Argo CD, and of the cluster-wide
+# kinds only the Namespace that CreateNamespace makes.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: forgejo-projects
+  namespace: argocd
+spec:
+  description: Projects hosted on Forgejo
+  sourceRepos:
+    - http://192.168.2.14:3000/projects/*
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: proj-*
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
