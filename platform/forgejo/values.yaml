@@ -42,7 +42,7 @@ gitea:
     mirror:
       # Each pull mirror fetches from GitHub this often. Per-repo, and changeable in its settings.
       DEFAULT_INTERVAL: 8h
-    # Off: nothing runs here. CI at home is the GitHub runner on echoes.
+    # Off: nothing runs here.
     actions:
       ENABLED: false
 

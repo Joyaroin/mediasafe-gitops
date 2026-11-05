@@ -22,7 +22,7 @@ is [ADR 0001 in the app repo](https://github.com/Joyaroin/MediaSafe/blob/main/do
 | **External Secrets** | Copies each namespace's secrets out of Vault into Kubernetes Secrets |
 | **MediaSafe** ×2 | `mediasafe-staging` and `mediasafe-prod` from one Helm chart: the Next.js app, a Valkey cache, a migration Job that runs before each rollout, and a nightly CronJob. Prod runs only on `hamon`, staging only on `hermit` (`nodeSelector` in `values-<env>.yaml`) |
 | **Tailscale operator** | Puts things on the tailnet instead of the internet: an Ingress with class `tailscale` becomes its own tailnet device with HTTPS |
-| **Forgejo** | A git server at https://forgejo.tailf69bc5.ts.net, tailnet only: pull mirrors of the GitHub repos. Actions are off: CI at home runs on `echoes`, through GitHub. The volume is not backed up yet: mirrors refill from GitHub, anything home-only does not |
+| **Forgejo** | A git server at https://forgejo.tailf69bc5.ts.net, tailnet only: pull mirrors of the GitHub repos. Actions are off. The volume is not backed up yet: mirrors refill from GitHub, anything home-only does not |
 
 Deploys are commits too: CI in the app repo writes a new image tag to
 `charts/mediasafe/values-staging.yaml` on every merge (the `Deploy MediaSafe … to staging`
@@ -45,8 +45,6 @@ commits), and a promote workflow copies it to `values-prod.yaml`.
 | `bootstrap/vault-unseal` | Unseals Vault with the key from Bitwarden. **After every Vault restart** |
 | `bootstrap/vault-restore-drill` | Restores the newest R2 snapshot into a throwaway Vault and reads a canary back. The restore procedure, and its test |
 | `bootstrap/forgejo-mirrors` | Mirrors every GitHub repo into Forgejo's `github` organisation. Run again for new repos |
-| `bootstrap/install-github-runner` | Sets up `echoes`, the VM on `joseph` that runs GitHub Actions jobs for private repositories in the `joyballrun` organisation: a fresh runner per job, off the tailnet. Trusted code only, since jobs have Docker. Run once per VM |
-| `bootstrap/register-github-runner` | Connects `echoes` to the organisation, the token piped in over SSH and kept root-only. Again when the token expires |
 
 ## Bootstrapping a cluster
 
