@@ -1,0 +1,57 @@
+# One Application per environment for every repo in Forgejo's `projects` organisation that has
+# deploy/chart/Chart.yaml. A new project needs no change here. Argo CD's scanner reads
+# organisations only, which is why these repos don't sit under a user.
+#
+# The address is written out rather than taken from the scanner's `url`: that is Forgejo's
+# Tailscale name, which pods can't resolve.
+#
+# Like every app here, deleting a project's Application leaves what it created running.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: forgejo-projects
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  syncPolicy:
+    preserveResourcesOnDeletion: true
+  generators:
+    - matrix:
+        generators:
+          - scmProvider:
+              requeueAfterSeconds: 180
+              gitea:
+                api: http://192.168.2.14:3000
+                owner: projects
+                tokenRef:
+                  secretName: forgejo-repo-creds
+                  key: password
+              filters:
+                - pathsExist: [deploy/chart/Chart.yaml]
+          - list:
+              elements:
+                - env: staging
+                - env: production
+  template:
+    metadata:
+      name: '{{ .repository }}-{{ .env }}'
+    spec:
+      project: forgejo-projects
+      source:
+        repoURL: 'http://192.168.2.14:3000/projects/{{ .repository }}.git'
+        targetRevision: main
+        path: deploy/chart
+        helm:
+          releaseName: '{{ .repository }}'
+          valueFiles:
+            - '../values-{{ .env }}.yaml'
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: 'proj-{{ .repository }}-{{ .env }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true

@@ -39,6 +39,7 @@ commits), and a promote workflow copies it to `values-prod.yaml`.
 | `platform/edge/` | The one Gateway, and the Let's Encrypt issuers with their Cloudflare token |
 | `platform/tailscale-operator/` | The operator's values, and its OAuth client from Vault |
 | `platform/forgejo/` | Forgejo's values, its admin login from Vault, and its tailnet Ingress |
+| `platform/forgejo-projects/` | Deploys every repo in Forgejo's `projects` organisation that has `deploy/chart`, into its own `proj-*` namespaces |
 | `bootstrap/install-k3s` | Installs k3s on the node, with the settings the rest assumes. Run once per machine |
 | `bootstrap/install` | Installs Argo CD on a fresh cluster. Run once per cluster |
 | `bootstrap/vault-init` | Initialises Vault and stores the unseal key and root token in Bitwarden. Once per Vault volume |

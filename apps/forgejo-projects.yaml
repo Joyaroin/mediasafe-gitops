@@ -1,0 +1,23 @@
+# Deploys every project in the Forgejo organisation `projects` that has a chart at
+# deploy/chart: the ApplicationSet, the AppProject that limits it, and its Forgejo login.
+#
+# Kept out of apps/argocd.yaml for the same reason as argocd-public: a sealed Vault degrades
+# this app, not Argo CD itself.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: forgejo-projects
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Joyaroin/morioh-cho-gitops.git
+    targetRevision: main
+    path: platform/forgejo-projects
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
