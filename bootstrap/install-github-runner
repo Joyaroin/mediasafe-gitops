@@ -142,9 +142,9 @@ while true; do
 
   # Nothing a job left behind reaches the next one.
   docker ps -aq | xargs -r docker rm -f >/dev/null
-  # Except images, which stay until the disk fills: Renovate's alone is 2 GB, and Docker's until
-  # filter goes by build date, so it can't mean "unused for a week". A job could replace a kept
-  # image, which is one more reason this VM is for trusted code only.
+  # Except images, which stay until the disk fills, so jobs don't pull them every time. Docker's
+  # until filter goes by build date, so it can't mean "unused for a week". A job could replace a
+  # kept image, which is one more reason this VM is for trusted code only.
   docker volume prune -af >/dev/null
   docker network prune -f >/dev/null
   docker builder prune -af >/dev/null
