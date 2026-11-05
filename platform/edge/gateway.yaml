@@ -65,3 +65,18 @@ spec:
           selector:
             matchLabels:
               kubernetes.io/metadata.name: argocd
+
+    - name: https-lab
+      hostname: lab.mediasafe.space
+      port: 8443
+      protocol: HTTPS
+      tls:
+        mode: Terminate
+        certificateRefs:
+          - name: lab-mediasafe-space-tls
+      allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchLabels:
+              kubernetes.io/metadata.name: proj-lab-production
