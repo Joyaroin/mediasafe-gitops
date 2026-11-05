@@ -22,7 +22,6 @@ is [ADR 0001 in the app repo](https://github.com/Joyaroin/MediaSafe/blob/main/do
 | **External Secrets** | Copies each namespace's secrets out of Vault into Kubernetes Secrets |
 | **MediaSafe** ×2 | `mediasafe-staging` and `mediasafe-prod` from one Helm chart: the Next.js app, a Valkey cache, a migration Job that runs before each rollout, and a nightly CronJob. Prod runs only on `hamon`, staging only on `hermit` (`nodeSelector` in `values-<env>.yaml`) |
 | **Tailscale operator** | Puts things on the tailnet instead of the internet: an Ingress with class `tailscale` becomes its own tailnet device with HTTPS |
-| **Forgejo** | A git server at https://forgejo.tailf69bc5.ts.net, tailnet only: pull mirrors of the GitHub repos. Actions are off. The volume is not backed up yet: mirrors refill from GitHub, anything home-only does not |
 
 Deploys are commits too: CI in the app repo writes a new image tag to
 `charts/mediasafe/values-staging.yaml` on every merge (the `Deploy MediaSafe … to staging`
@@ -38,14 +37,12 @@ commits), and a promote workflow copies it to `values-prod.yaml`.
 | `charts/mediasafe/` | The app: Deployment, Service, route, migration Job, nightly sweep, Valkey, and its Secrets from Vault. `values-<env>.yaml` per environment |
 | `platform/edge/` | The one Gateway, and the Let's Encrypt issuers with their Cloudflare token |
 | `platform/tailscale-operator/` | The operator's values, and its OAuth client from Vault |
-| `platform/forgejo/` | Forgejo's values, its admin login from Vault, and its tailnet Ingress |
 | `platform/forgejo-projects/` | Deploys every repo in Forgejo's `projects` organisation that has `deploy/chart`, into its own `proj-*` namespaces |
 | `bootstrap/install-k3s` | Installs k3s on the node, with the settings the rest assumes. Run once per machine |
 | `bootstrap/install` | Installs Argo CD on a fresh cluster. Run once per cluster |
 | `bootstrap/vault-init` | Initialises Vault and stores the unseal key and root token in Bitwarden. Once per Vault volume |
 | `bootstrap/vault-unseal` | Unseals Vault with the key from Bitwarden. **After every Vault restart** |
 | `bootstrap/vault-restore-drill` | Restores the newest R2 snapshot into a throwaway Vault and reads a canary back. The restore procedure, and its test |
-| `bootstrap/forgejo-mirrors` | Mirrors every GitHub repo into Forgejo's `github` organisation. Run again for new repos |
 
 ## Bootstrapping a cluster
 

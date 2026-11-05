@@ -65,12 +65,3 @@ configs:
     policy.csv: |
       g, adhamseddik546@gmail.com, role:admin
     scopes: "[email]"
-
-  # Helm repositories served from an OCI registry instead of an index.yaml. Argo CD only
-  # pulls a chart from one over OCI when a repository entry says so. Public, so no credentials.
-  repositories:
-    forgejo-helm:
-      name: forgejo-helm
-      type: helm
-      url: code.forgejo.org/forgejo-helm
-      enableOCI: "true"
