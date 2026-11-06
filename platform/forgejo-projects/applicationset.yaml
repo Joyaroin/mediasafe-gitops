@@ -6,7 +6,8 @@
 # Tailscale name, which pods can't resolve.
 #
 # Production follows the production branch, which only a project's promote workflow moves. On
-# main it would pick up merged chart changes without a promote.
+# main it would pick up merged chart changes without a promote. Staging follows the staging branch,
+# which only a project's release workflow moves, so deploys add no commits to main.
 #
 # Like every app here, deleting a project's Application leaves what it created running.
 apiVersion: argoproj.io/v1alpha1
@@ -35,7 +36,7 @@ spec:
           - list:
               elements:
                 - env: staging
-                  revision: main
+                  revision: staging
                 - env: production
                   revision: production
   template:
